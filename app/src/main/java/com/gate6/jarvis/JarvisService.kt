@@ -18,6 +18,8 @@ import android.os.Looper
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.gate6.jarvis.mcp.McpRegistry
+import com.gate6.jarvis.voice.Latency
 import com.gate6.jarvis.voice.VoiceSessionManager
 import com.gate6.jarvis.wake.WakeWordListener
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,6 +67,7 @@ class JarvisService : Service() {
             return
         }
         if (!ensureForeground()) return
+        Latency.start("talk requested")
         stopWake()
         sessions.start()
         updateNotification()
@@ -95,6 +98,9 @@ class JarvisService : Service() {
         wake = listener
         _wakeListening.value = true
         updateNotification()
+        // Have tool lists and an App Check token ready before "Hey Jarvis", not after.
+        McpRegistry.prewarm(this)
+        JarvisApp.prewarmAppCheck()
     }
 
     private fun stopWake() {
@@ -104,6 +110,7 @@ class JarvisService : Service() {
     }
 
     private fun onWake(listener: WakeWordListener) {
+        Latency.start("wake word detected")
         // Ignore a detection that raced with "Turn off", a shutdown or a restart of the listener.
         if (wake !== listener || !foreground || !config.wakeWordEnabled || sessions.isActive) return
         _wakeListening.value = false

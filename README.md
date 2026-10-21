@@ -43,7 +43,11 @@ notification ("Talk now" / "Turn off"). After each conversation it goes back to 
 - Detection runs entirely on the phone: the microWakeWord `hey_jarvis` model (Apache-2.0, by Kevin
   Ahrendt, from `esphome/micro-wake-word-models`) on LiteRT, with a Kotlin port of the TFLite Micro
   audio frontend. No audio leaves the phone until the wake word is heard.
-- A short beep means Jarvis is connected and listening.
+- **Speed**: the mic opens about 0.3 s after the wake word, with a short beep, and you can keep talking
+  straight away ("Hey Jarvis, what's on my calendar?"). Speech is buffered while Jarvis connects
+  (about 1–2 s) and sent as soon as the session is up. Tool lists and the App Check token are fetched
+  ahead of time, and a model the server rejected is skipped next time. Timings per conversation:
+  `adb logcat -s JarvisLatency`.
 - One-tap alternative: long-press the Jarvis icon → **Talk to Jarvis** (drag it to the home screen to
   pin it), or "Talk now" in the notification.
 - **Sensitivity**: Normal (model default, 0.97), High (0.90), Very high (0.80). Higher catches more
@@ -97,6 +101,12 @@ tool count. Tokens are encrypted with an Android Keystore key and never shown ag
 
 `./gradlew connectedDebugAndroidTest` runs the wake word detector on a device or emulator against
 recorded clips.
+
+## Latency log
+
+`adb logcat -s JarvisLatency` prints, per conversation, milliseconds from the wake word (or button):
+`session start`, `mic open`, `tools ready`, `connected; sending buffered speech`, `first reply audio`.
+"mic open" is when you are being heard; "connected" minus "mic open" is network + Gemini setup.
 
 ## Release builds
 

@@ -80,34 +80,36 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
         resumeHandle = null
         setState(BrainState.CONNECTING)
 
-        val live = try {
-            connect(config, config.model)
-        } catch (e: Exception) {
-            val fallback = config.fallbackModel
-            // Only a rejected model is worth retrying; setup, quota and cancellation errors are not.
-            if (e is CancellationException || e is QuotaExceededException || e is IllegalStateException ||
-                fallback == null || fallback == config.model
-            ) throw e
-            Log.w(TAG, "Model ${config.model} failed (${e.message}); falling back to $fallback")
-            connect(config, fallback)
-        }
-        session = live
-
+        // Open the mic before connecting: what the user says meanwhile is buffered and sent as soon as
+        // the session is up, so they can talk right after the wake word instead of waiting for setup.
         val io = AudioIO(context)
         io.onPlaybackStarted = { setState(BrainState.SPEAKING) }
         io.onPlaybackDrained = { if (turnDone) setState(BrainState.LISTENING) }
+        // Bounded: enough for speech during a slow connect, without growing on a stalled socket.
+        val mic = Channel<ByteArray>(capacity = PREROLL_CHUNKS, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+        io.start { mic.trySend(it) }
         audio = io
+        Latency.mark("mic open")
+        setState(BrainState.LISTENING)
 
-        // Bounded so a stalled socket can't grow memory; stale mic audio is worthless anyway.
-        val mic = Channel<ByteArray>(capacity = 40, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-        try {
-            io.start { mic.trySend(it) }
+        val live = try {
+            val tools = config.tools()
+            Latency.mark("tools ready (${tools.size})")
+            connectWithFallback(config, tools)
         } catch (e: Exception) {
-            runCatching { live.close() }
-            session = null
+            mic.close()
+            io.stop()
             audio = null
             throw e
         }
+        if (stopping) { // stop() was called while connecting
+            runCatching { live.close() }
+            mic.close()
+            return
+        }
+        session = live
+        Latency.mark("connected; sending buffered speech")
+
         scope.launch {
             for (chunk in mic) {
                 runCatching { session?.sendAudioRealtime(InlineData(chunk, MIC_MIME)) }
@@ -115,14 +117,30 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
             }
         }
         scope.launch { receiveLoop(live, io) }
-        setState(BrainState.LISTENING)
     }
 
-    private suspend fun connect(config: BrainConfig, modelName: String): LiveSession {
+    private suspend fun connectWithFallback(config: BrainConfig, tools: List<ToolSpec>): LiveSession {
+        val live = try {
+            connect(config, config.model, tools).also { listener.onConnected(config.model) }
+        } catch (e: Exception) {
+            val fallback = config.fallbackModel
+            // Only a rejected model is worth retrying; setup, quota and cancellation errors are not.
+            if (e is CancellationException || e is QuotaExceededException || e is IllegalStateException ||
+                fallback == null || fallback == config.model
+            ) throw e
+            Log.w(TAG, "Model ${config.model} failed (${e.message}); falling back to $fallback")
+            connect(config, fallback, tools).also { listener.onConnected(fallback) }
+        }
+        return live
+    }
+
+    private suspend fun connect(config: BrainConfig, modelName: String, tools: List<ToolSpec>): LiveSession {
         Log.i(TAG, "Connecting to $modelName")
-        val declarations = config.tools.mapNotNull { GeminiSchema.toDeclaration(it) }
+        val declarations = tools.mapNotNull { GeminiSchema.toDeclaration(it) }
+        // Standard (cached, auto-refreshed) App Check tokens: a limited-use token would cost a network
+        // round trip on every connect. Switch to true only if App Check replay protection is enforced.
         val model: LiveGenerativeModel =
-            Firebase.ai(backend = GenerativeBackend.googleAI(), useLimitedUseAppCheckTokens = true).liveModel(
+            Firebase.ai(backend = GenerativeBackend.googleAI(), useLimitedUseAppCheckTokens = false).liveModel(
                 modelName = modelName,
                 generationConfig = liveGenerationConfig {
                     responseModality = ResponseModality.AUDIO
@@ -188,6 +206,7 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
             return
         }
         msg.content?.parts?.filterIsInstance<InlineDataPart>()?.forEach {
+            Latency.markOnce("first reply audio")
             turnDone = false
             thinkingDebounce?.cancel()
             io.enqueuePlayback(it.inlineData)
@@ -263,5 +282,6 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
         private const val TRACE = "LiveTrace"
         private const val MIC_MIME = "audio/pcm;rate=16000"
         private const val THINKING_AFTER_MS = 700L
+        private const val PREROLL_CHUNKS = 160 // 8 s of 50 ms mic chunks
     }
 }

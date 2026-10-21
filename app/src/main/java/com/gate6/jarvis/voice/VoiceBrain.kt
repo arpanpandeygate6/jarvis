@@ -12,7 +12,8 @@ data class BrainConfig(
     val fallbackModel: String?,
     val voice: String,
     val systemInstruction: String,
-    val tools: List<ToolSpec>,
+    /** Called after the mic is open, so slow tool discovery overlaps with the user speaking. */
+    val tools: suspend () -> List<ToolSpec>,
 )
 
 /**
@@ -34,11 +35,17 @@ interface VoiceBrain {
          */
         suspend fun onToolCall(name: String, args: JsonObject): String?
 
+        /** Which model the session connected to (the fallback, if the preferred one was rejected). */
+        fun onConnected(model: String) {}
+
         /** The connection ended without [VoiceBrain.stop] being called. [error] is null on a clean server close. */
         fun onEnded(error: Throwable?)
     }
 
-    /** Connects and opens the mic. Throws if the connection cannot be established. */
+    /**
+     * Opens the mic, then connects; speech captured while connecting is buffered and sent once the
+     * session is up. Throws if the connection cannot be established.
+     */
     suspend fun start(config: BrainConfig, listener: Listener)
 
     /** Waits (up to [timeoutMs]) until the current assistant turn has finished playing. */

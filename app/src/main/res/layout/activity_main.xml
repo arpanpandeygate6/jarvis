@@ -208,5 +208,18 @@
             style="@style/Jarvis.Button.Row"
             android:drawableEnd="@drawable/ic_chevron"
             android:text="MCP servers" />
+
+        <!-- Test builds only: lets a tester send this phone's App Check code. -->
+        <TextView
+            android:id="@+id/deviceCodeSection"
+            style="@style/Jarvis.Section"
+            android:text="Testing"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/deviceCode"
+            style="@style/Jarvis.Button.Row"
+            android:text="Send my device code"
+            android:visibility="gone" />
     </LinearLayout>
 </ScrollView>

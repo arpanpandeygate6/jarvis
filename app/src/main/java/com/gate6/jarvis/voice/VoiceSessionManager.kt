@@ -86,26 +86,20 @@ class VoiceSessionManager(
         val b = GeminiLiveBrain(context)
         brain = b
         publish(SessionState.CONNECTING)
+        Latency.mark("session start")
+        // If the preferred model was rejected last time, go straight to the fallback (a failed
+        // connect costs a full round trip) and keep the preferred one as the retry.
+        val preferred = config.model
+        val skipPreferred = config.rejectedModel == preferred && preferred != JarvisConfig.FALLBACK_MODEL
         scope.launch {
             try {
-                val loaded = try {
-                    McpRegistry.load(context, TOOL_LOAD_TIMEOUT_MS)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.e(TAG, "Could not load MCP tools", e)
-                    null
-                }
-                if (brain !== b) return@launch // stopped while tools were loading
-                catalog = loaded?.catalog
-                loaded?.let { _transcript.value = toolSummary(it) }
                 b.start(
                     BrainConfig(
-                        model = config.model,
-                        fallbackModel = JarvisConfig.FALLBACK_MODEL,
+                        model = if (skipPreferred) JarvisConfig.FALLBACK_MODEL else preferred,
+                        fallbackModel = if (skipPreferred) preferred else JarvisConfig.FALLBACK_MODEL,
                         voice = config.voice,
                         systemInstruction = JarvisConfig.SYSTEM_INSTRUCTION,
-                        tools = listOf(END_CONVERSATION) + loaded?.catalog?.specs().orEmpty(),
+                        tools = ::loadTools,
                     ),
                     listener,
                 )
@@ -208,12 +202,34 @@ class VoiceSessionManager(
             return runTool(route, args)
         }
 
+        override fun onConnected(model: String) {
+            scope.launch {
+                val preferred = config.model
+                config.rejectedModel = if (model == preferred) null else preferred
+            }
+        }
+
         override fun onEnded(error: Throwable?) {
             scope.launch {
                 if (brain == null) return@launch
                 if (error != null) fail(error) else stop("server closed")
             }
         }
+    }
+
+    /** Called by the brain once the mic is open. Uses cached tool lists; see [McpRegistry.load]. */
+    private suspend fun loadTools(): List<ToolSpec> {
+        val loaded = try {
+            McpRegistry.load(context, TOOL_LOAD_TIMEOUT_MS)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not load MCP tools", e)
+            null
+        }
+        catalog = loaded?.catalog
+        loaded?.let { if (it.serverCount > 0 || it.failures.isNotEmpty()) _transcript.value = toolSummary(it) }
+        return listOf(END_CONVERSATION) + loaded?.catalog?.specs().orEmpty()
     }
 
     private suspend fun runTool(route: ToolRoute, args: JsonObject): String {
@@ -330,7 +346,7 @@ class VoiceSessionManager(
         val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         val message = when {
             e is AppCheckRejected && debuggable ->
-                "This phone is not registered with Firebase App Check yet. Add its debug token in the Firebase console, then try again."
+                "This phone is not registered yet. Tap Send my device code at the bottom of this screen and send it to whoever shared Jarvis with you, then try again once they have added it."
             e is AppCheckRejected -> "Firebase App Check rejected this device. Install Jarvis from Google Play."
             e is QuotaExceededException || e.message?.contains("quota", ignoreCase = true) == true ->
                 "Gemini free quota reached. Try again later."
@@ -365,7 +381,8 @@ class VoiceSessionManager(
         private const val TAG = "VoiceSession"
         private const val GOODBYE_GRACE_MS = 1200L
         private const val GOODBYE_MAX_MS = 4000L
-        private const val TOOL_LOAD_TIMEOUT_MS = 6000L
+        /** Only matters on a cold start with no cached tool lists; the mic is already open by then. */
+        private const val TOOL_LOAD_TIMEOUT_MS = 3000L
         private const val TOOL_TIMEOUT_MS = 50_000L
         private const val CONFIRM_SETTLE_MS = 400L
         private const val CONFIRM_BATCH_MS = 3000L

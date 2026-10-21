@@ -76,6 +76,14 @@ class MainActivity : Activity() {
             startActivity(android.content.Intent(this, ServersActivity::class.java))
         }
 
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            findViewById<View>(R.id.deviceCodeSection).visibility = View.VISIBLE
+            findViewById<Button>(R.id.deviceCode).apply {
+                visibility = View.VISIBLE
+                setOnClickListener { shareDeviceCode() }
+            }
+        }
+
         if (!hasMic()) requestPermissions()
     }
 
@@ -113,6 +121,8 @@ class MainActivity : Activity() {
         // A microphone service may only start while the app is visible: (re)start wake listening here,
         // e.g. after a reboot or after the system stopped the service.
         if (config.wakeWordEnabled && hasMic()) JarvisService.startListening(this)
+        com.gate6.jarvis.mcp.McpRegistry.prewarm(this)
+        JarvisApp.prewarmAppCheck()
     }
 
     override fun onPause() {
@@ -146,6 +156,20 @@ class MainActivity : Activity() {
 
     private companion object {
         val SENSITIVITY_IDS = listOf(R.id.sens_normal, R.id.sens_high, R.id.sens_max)
+    }
+
+    /** Opens the share sheet (WhatsApp, Slack, email…) with this phone's App Check debug token. */
+    private fun shareDeviceCode() {
+        val token = appCheckDebugToken(this)
+        if (token == null) {
+            Toast.makeText(this, "Code not ready yet. Close and reopen Jarvis, then try again.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val text = "Jarvis device code for Firebase App Check: $token"
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(android.content.Intent.EXTRA_TEXT, text)
+        startActivity(android.content.Intent.createChooser(send, "Send device code"))
     }
 
     private fun hasMic() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED

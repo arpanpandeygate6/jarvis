@@ -40,12 +40,17 @@ object McpRegistry {
         val failures: Map<String, String>,
     )
 
-    /** Loads tools from every enabled server in parallel. A failing server is skipped, never fatal. */
+    /**
+     * Tools from every enabled server, for a starting conversation. Never waits on the network for a
+     * server whose tools are cached (any age): those are returned at once and refreshed in the
+     * background if stale. Only a server with nothing cached is waited on, up to [timeoutMs].
+     * A failing server is skipped, never fatal.
+     */
     suspend fun load(context: Context, timeoutMs: Long): LoadResult = withContext(Dispatchers.IO) {
         val store = McpServerStore(context.applicationContext)
         val servers = store.enabled()
         val results = coroutineScope {
-            servers.map { s -> async { s to fetch(store, s, timeoutMs, useCache = true) } }.awaitAll()
+            servers.map { s -> async { s to cachedOrFetch(store, s, timeoutMs) } }.awaitAll()
         }
         val failures = mutableMapOf<String, String>()
         val toolsets = results.mapNotNull { (s, r) ->
@@ -58,6 +63,39 @@ object McpRegistry {
         if (catalog.skipped > 0) Log.w(TAG, "Tool limit reached; ${catalog.skipped} tools not offered to the model")
         LoadResult(catalog, servers.size, failures)
     }
+
+    /**
+     * Fetches tool lists that are missing or stale, in the background, so the next conversation finds
+     * them cached. Called when wake word listening starts and when the app comes to the front.
+     */
+    fun prewarm(context: Context) {
+        val store = McpServerStore(context.applicationContext)
+        scope.launch {
+            for (s in store.enabled()) if (!isFresh(cache[s.id])) refreshInBackground(store, s)
+        }
+    }
+
+    /** At most one background refresh per server at a time. */
+    private val refreshing = ConcurrentHashMap.newKeySet<String>()
+
+    private fun refreshInBackground(store: McpServerStore, s: McpServer) {
+        if (!refreshing.add(s.id)) return
+        scope.launch {
+            try {
+                fetch(store, s, timeoutMs = 20_000, useCache = false)
+            } finally {
+                refreshing.remove(s.id)
+            }
+        }
+    }
+
+    private suspend fun cachedOrFetch(store: McpServerStore, s: McpServer, timeoutMs: Long): Result<List<McpTool>> {
+        val cached = cache[s.id] ?: return fetch(store, s, timeoutMs, useCache = false)
+        if (!isFresh(cached)) refreshInBackground(store, s)
+        return Result.success(cached.tools)
+    }
+
+    private fun isFresh(c: Cached?) = c != null && SystemClock.elapsedRealtime() - c.at < CACHE_TTL_MS
 
     /** Fresh connection test for the settings screen. */
     suspend fun test(context: Context, server: McpServer): Result<List<McpTool>> = withContext(Dispatchers.IO) {
