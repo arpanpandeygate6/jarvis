@@ -6,6 +6,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -95,9 +99,8 @@ class McpClient(private val url: String, private val auth: McpAuth? = null) {
         sessionId = null
         initialized = false
         runCatching {
-            val token = auth?.token()
-            runInterruptible(Dispatchers.IO) {
-                val conn = open("DELETE", sid, CONNECT_TIMEOUT_MS, token)
+            val conn = open("DELETE", sid, CONNECT_TIMEOUT_MS, auth?.token())
+            cancellable(conn) {
                 conn.responseCode
                 conn.disconnect()
             }
@@ -164,57 +167,82 @@ class McpClient(private val url: String, private val auth: McpAuth? = null) {
     }
 
     /** POSTs one message. Returns the JSON-RPC `result` for requests, null for notifications. */
-    private suspend fun post(message: JsonObject, readTimeoutMs: Int, token: String?, captureSession: Boolean): JsonObject? =
-        runInterruptible(Dispatchers.IO) {
-            val conn = open("POST", sessionId, readTimeoutMs, token)
+    private suspend fun post(message: JsonObject, readTimeoutMs: Int, token: String?, captureSession: Boolean): JsonObject? {
+        val conn = open("POST", sessionId, readTimeoutMs, token)
+        return cancellable(conn) { exchange(conn, message, captureSession) }
+    }
+
+    private fun exchange(conn: HttpURLConnection, message: JsonObject, captureSession: Boolean): JsonObject? {
+        try {
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.outputStream.use { it.write(message.toString().toByteArray()) }
+
+            val code = conn.responseCode
+            if (captureSession) conn.getHeaderField(SESSION_HEADER)?.let { sessionId = it }
+            when {
+                code == 404 && sessionId != null && !captureSession -> throw SessionExpiredException()
+                code == 401 || code == 403 -> throw McpAuthException(
+                    if (code == 401) "Server needs sign-in or a valid access token (HTTP 401)."
+                    else "Server refused access (HTTP 403). The account may lack permission.",
+                    conn.getHeaderField("WWW-Authenticate"),
+                    code,
+                )
+                code !in 200..299 -> throw McpException("HTTP $code from MCP server: ${errorBody(conn)}")
+            }
+            val id = (message["id"] as? JsonPrimitive)?.contentOrNull ?: return null
+            if (code == 202) throw McpException("Server accepted the request but sent no reply")
+
+            val type = conn.contentType.orEmpty().lowercase()
+            val reply = if (type.startsWith("text/event-stream")) {
+                conn.inputStream.bufferedReader().use { r ->
+                    val sse = SseReader(r)
+                    generateSequence { sse.next() }
+                        .mapNotNull { parseOrNull(it) }
+                        .flatMap { if (it is JsonArray) it.asSequence() else sequenceOf(it) }
+                        .filterIsInstance<JsonObject>()
+                        .firstOrNull { it.isResponseTo(id) }
+                }
+            } else {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                when (val parsed = parseOrNull(body)) {
+                    is JsonObject -> parsed.takeIf { it.isResponseTo(id) }
+                    is JsonArray -> parsed.filterIsInstance<JsonObject>().firstOrNull { it.isResponseTo(id) }
+                    else -> null
+                }
+            } ?: throw McpException("Server closed the stream without replying")
+
+            (reply["error"] as? JsonObject)?.let { err ->
+                val msg = (err["message"] as? JsonPrimitive)?.contentOrNull ?: err.toString()
+                throw McpException(msg)
+            }
+            return reply["result"] as? JsonObject ?: JsonObject(emptyMap())
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /**
+     * Runs blocking I/O on [conn] so that cancelling the coroutine really stops it: socket reads
+     * ignore thread interrupts, so a watchdog closes the connection, which makes the read fail.
+     */
+    private suspend fun <T> cancellable(conn: HttpURLConnection, block: () -> T): T = coroutineScope {
+        val watchdog = launch {
             try {
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.outputStream.use { it.write(message.toString().toByteArray()) }
-
-                val code = conn.responseCode
-                if (captureSession) conn.getHeaderField(SESSION_HEADER)?.let { sessionId = it }
-                when {
-                    code == 404 && sessionId != null && !captureSession -> throw SessionExpiredException()
-                    code == 401 || code == 403 -> throw McpAuthException(
-                        if (code == 401) "Server needs sign-in or a valid access token (HTTP 401)."
-                        else "Server refused access (HTTP 403). The account may lack permission.",
-                        conn.getHeaderField("WWW-Authenticate"),
-                        code,
-                    )
-                    code !in 200..299 -> throw McpException("HTTP $code from MCP server: ${errorBody(conn)}")
-                }
-                val id = (message["id"] as? JsonPrimitive)?.contentOrNull ?: return@runInterruptible null
-                if (code == 202) throw McpException("Server accepted the request but sent no reply")
-
-                val type = conn.contentType.orEmpty().lowercase()
-                val reply = if (type.startsWith("text/event-stream")) {
-                    conn.inputStream.bufferedReader().use { r ->
-                        val sse = SseReader(r)
-                        generateSequence { sse.next() }
-                            .mapNotNull { parseOrNull(it) }
-                            .flatMap { if (it is JsonArray) it.asSequence() else sequenceOf(it) }
-                            .filterIsInstance<JsonObject>()
-                            .firstOrNull { it.isResponseTo(id) }
-                    }
-                } else {
-                    val body = conn.inputStream.bufferedReader().use { it.readText() }
-                    when (val parsed = parseOrNull(body)) {
-                        is JsonObject -> parsed.takeIf { it.isResponseTo(id) }
-                        is JsonArray -> parsed.filterIsInstance<JsonObject>().firstOrNull { it.isResponseTo(id) }
-                        else -> null
-                    }
-                } ?: throw McpException("Server closed the stream without replying")
-
-                (reply["error"] as? JsonObject)?.let { err ->
-                    val msg = (err["message"] as? JsonPrimitive)?.contentOrNull ?: err.toString()
-                    throw McpException(msg)
-                }
-                reply["result"] as? JsonObject ?: JsonObject(emptyMap())
+                awaitCancellation()
             } finally {
                 conn.disconnect()
             }
         }
+        try {
+            runInterruptible(Dispatchers.IO) { block() }
+        } catch (e: IOException) {
+            ensureActive() // closed by the watchdog: report the cancellation, not "socket closed"
+            throw e
+        } finally {
+            watchdog.cancel()
+        }
+    }
 
     private fun open(method: String, sid: String?, readTimeoutMs: Int, token: String?): HttpURLConnection {
         val conn = URL(url).openConnection() as HttpURLConnection

@@ -38,6 +38,7 @@ class JarvisService : Service() {
     private var wake: WakeWordListener? = null
     private var foreground = false
     private val main = Handler(Looper.getMainLooper())
+    private val resumeWake = Runnable { if (foreground && !sessions.isActive) startWake() }
 
     override fun onCreate() {
         super.onCreate()
@@ -49,12 +50,8 @@ class JarvisService : Service() {
         when (intent?.action) {
             ACTION_START_SESSION -> startSession()
             ACTION_START_LISTENING -> if (ensureForeground() && !sessions.isActive) startWake()
-            ACTION_STOP -> if (sessions.isActive) sessions.stop("user stop") else shutDown()
-            ACTION_STOP_LISTENING -> {
-                config.wakeWordEnabled = false
-                stopWake()
-                if (!sessions.isActive) shutDown()
-            }
+            ACTION_STOP -> if (sessions.isActive) sessions.stop("user stop") else turnOffWake()
+            ACTION_STOP_LISTENING -> turnOffWake()
             else -> if (!foreground) stopSelf() // e.g. system restart without an intent
         }
         return START_NOT_STICKY
@@ -73,15 +70,29 @@ class JarvisService : Service() {
         updateNotification()
     }
 
+    /** Wake word off: stop listening, remember the choice, and stop the service unless in a conversation. */
+    private fun turnOffWake() {
+        config.wakeWordEnabled = false
+        stopWake()
+        if (!sessions.isActive) shutDown()
+    }
+
     private fun startWake() {
-        if (!config.wakeWordEnabled || !hasMic()) return
+        if (!config.wakeWordEnabled || !hasMic() || !foreground) return
         val current = wake
         if (current?.isRunning == true && current.cutoff == config.wakeCutoff) return
         stopWake() // not running, or the sensitivity changed
         val listener = WakeWordListener(this, config.wakeCutoff)
-        wake = listener
         @Suppress("MissingPermission") // hasMic() checked above
-        listener.start(onWake = ::onWake)
+        val started = listener.start(
+            onWake = { onWake(listener) },
+            onStopped = { if (wake === listener) stopWake() },
+        )
+        if (!started) {
+            Log.e(TAG, "Wake word unavailable on this device")
+            return
+        }
+        wake = listener
         _wakeListening.value = true
         updateNotification()
     }
@@ -92,7 +103,9 @@ class JarvisService : Service() {
         _wakeListening.value = false
     }
 
-    private fun onWake() {
+    private fun onWake(listener: WakeWordListener) {
+        // Ignore a detection that raced with "Turn off", a shutdown or a restart of the listener.
+        if (wake !== listener || !foreground || !config.wakeWordEnabled || sessions.isActive) return
         _wakeListening.value = false
         wake = null
         if (!hasMic()) return
@@ -104,7 +117,8 @@ class JarvisService : Service() {
     private fun onSessionClosed() {
         if (config.wakeWordEnabled && foreground) {
             // Let the session's recorder fully release before reopening the mic.
-            main.postDelayed({ if (!sessions.isActive) startWake() }, MIC_HANDOVER_MS)
+            main.removeCallbacks(resumeWake)
+            main.postDelayed(resumeWake, MIC_HANDOVER_MS)
             updateNotification()
         } else {
             shutDown()
@@ -135,6 +149,7 @@ class JarvisService : Service() {
     }
 
     private fun shutDown() {
+        main.removeCallbacks(resumeWake)
         stopWake()
         foreground = false
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -184,6 +199,7 @@ class JarvisService : Service() {
     }
 
     override fun onDestroy() {
+        main.removeCallbacks(resumeWake)
         stopWake()
         sessions.release()
         super.onDestroy()

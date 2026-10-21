@@ -30,7 +30,8 @@ Needs JDK 17+ (Android Studio's bundled one, or `brew install openjdk@21` and
 (or open the folder in Android Studio and press Run). `adb` lives in
 `~/Library/Android/sdk/platform-tools`.
 
-6. First launch: `adb logcat -s DebugAppCheckProvider` prints
+6. First launch: if Jarvis says "This phone is not registered with Firebase App Check yet", run
+   `adb logcat -s DebugAppCheckProvider`, which prints
    `Enter this debug secret into the allow list ...: <token>`. Add it in
    **App Check → Apps → ⋮ → Manage debug tokens**. One token per device/install.
 
@@ -43,6 +44,8 @@ notification ("Talk now" / "Turn off"). After each conversation it goes back to 
   Ahrendt, from `esphome/micro-wake-word-models`) on LiteRT, with a Kotlin port of the TFLite Micro
   audio frontend. No audio leaves the phone until the wake word is heard.
 - A short beep means Jarvis is connected and listening.
+- One-tap alternative: long-press the Jarvis icon → **Talk to Jarvis** (drag it to the home screen to
+  pin it), or "Talk now" in the notification.
 - **Sensitivity**: Normal (model default, 0.97), High (0.90), Very high (0.80). Higher catches more
   accents and quieter speech but wakes by mistake more often.
 - Android only allows a microphone service to start while the app is on screen. After a reboot, or if

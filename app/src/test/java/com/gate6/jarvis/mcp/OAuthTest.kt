@@ -215,6 +215,19 @@ class OAuthTest {
     }
 
     @Test
+    fun refreshErrorsSayWhetherTheGrantIsDead() {
+        val auth = OAuth.discover("$base/mcp", null)
+        val client = OAuth.Client("client-123")
+        try {
+            OAuth.refresh(auth, client, "revoked")
+            fail("expected error")
+        } catch (e: OAuth.OAuthException) {
+            assertTrue(e.grantRejected) // invalid_grant: sign in again
+        }
+        assertTrue(!OAuth.OAuthException("HTTP 503", null, 503).grantRejected) // temporary: keep the sign-in
+    }
+
+    @Test
     fun parsesChallengeHeaders() {
         val c = OAuth.parseChallenge("""Bearer realm="OAuth", resource_metadata="https://x/y", scope="read write", error=invalid_token""")
         assertEquals("https://x/y", c["resource_metadata"])

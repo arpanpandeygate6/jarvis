@@ -104,6 +104,17 @@ class ConfirmationTest {
     }
 
     @Test
+    fun questionsAndLaughterAreNotConsent() {
+        assertFalse(Confirmation.isClearYes("Okay, what branch is that again?"))
+        assertFalse(Confirmation.isClearYes("okay which one"))
+        assertFalse(Confirmation.isClearYes("ha ha"))
+        assertFalse(Confirmation.isClearYes("sure, but how long will it take"))
+        assertFalse(Confirmation.isClearYes("haan kaunsa wala"))
+        assertTrue(Confirmation.isClearYes("yes go ahead and create it in the web repo"))
+        assertFalse(Confirmation.isClearYes("yes " + "and then something else ".repeat(4)))
+    }
+
+    @Test
     fun wordBoundariesAvoidFalseYes() {
         assertFalse(Confirmation.isClearYes("what about the other one"))
         assertFalse(Confirmation.isClearYes("thanks"))

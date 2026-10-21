@@ -2,6 +2,7 @@ package com.gate6.jarvis.voice
 
 import android.Manifest
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.annotation.RequiresPermission
@@ -12,7 +13,13 @@ import com.gate6.jarvis.mcp.McpRegistry
 import com.gate6.jarvis.mcp.ToolArgs
 import com.gate6.jarvis.mcp.ToolCatalog
 import com.gate6.jarvis.mcp.ToolRoute
+import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.ai.type.QuotaExceededException
+import com.google.firebase.appcheck.appCheck
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -102,9 +109,11 @@ class VoiceSessionManager(
                     ),
                     listener,
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Could not start voice session", e)
-                fail(e)
+                fail(diagnose(e))
             }
         }
     }
@@ -240,14 +249,16 @@ class VoiceSessionManager(
         } finally {
             scope.launch {
                 runningTools = (runningTools - 1).coerceAtLeast(0)
+                // A batch's next write usually arrives right after the previous one finishes: restart the window.
+                if (route.needsConfirmation && approvedTurnId == userTurnId) approvedAt = System.currentTimeMillis()
                 if (brain != null) restartIdleTimer()
             }
         }
     }
 
     /**
-     * One "yes" authorizes the data-changing calls the model makes right after it (a batch), not later
-     * ones: a new action needs a new question and a new yes.
+     * One "yes" authorizes the data-changing calls the model makes right after it (a batch, including
+     * calls chained one after another), not later ones: a new action needs a new question and a new yes.
      */
     private fun checkConfirmation(flag: Boolean): Confirmation.Verdict {
         val now = System.currentTimeMillis()
@@ -258,7 +269,7 @@ class VoiceSessionManager(
             )
         }
         val verdict = Confirmation.check(flag, lastAssistantTurn, userTurn.toString())
-        if (verdict.allowed && approvedTurnId != userTurnId) {
+        if (verdict.allowed) {
             approvedTurnId = userTurnId
             approvedAt = now
         }
@@ -295,8 +306,31 @@ class VoiceSessionManager(
         }
     }
 
+    /** Thrown in place of an opaque connection error when App Check is what failed. */
+    private class AppCheckRejected(cause: Throwable) : Exception("App Check rejected this device", cause)
+
+    /**
+     * A rejected App Check token surfaces only as "channel closed by the server". When a session fails
+     * to start, ask App Check directly so the user hears the real cause. Costs nothing on success.
+     */
+    private suspend fun diagnose(e: Exception): Throwable {
+        if (FirebaseApp.getApps(context).isEmpty()) return e
+        val appCheckError = withTimeoutOrNull(APP_CHECK_PROBE_MS) {
+            suspendCancellableCoroutine<Exception?> { cont ->
+                Firebase.appCheck.getLimitedUseAppCheckToken().addOnCompleteListener { t ->
+                    if (cont.isActive) cont.resume(t.exception)
+                }
+            }
+        }
+        return if (appCheckError != null) AppCheckRejected(appCheckError) else e
+    }
+
     private fun fail(e: Throwable) {
+        val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         val message = when {
+            e is AppCheckRejected && debuggable ->
+                "This phone is not registered with Firebase App Check yet. Add its debug token in the Firebase console, then try again."
+            e is AppCheckRejected -> "Firebase App Check rejected this device. Install Jarvis from Google Play."
             e is QuotaExceededException || e.message?.contains("quota", ignoreCase = true) == true ->
                 "Gemini free quota reached. Try again later."
             e is SecurityException -> "Microphone permission is missing."
@@ -334,6 +368,7 @@ class VoiceSessionManager(
         private const val TOOL_TIMEOUT_MS = 50_000L
         private const val CONFIRM_SETTLE_MS = 400L
         private const val CONFIRM_BATCH_MS = 3000L
+        private const val APP_CHECK_PROBE_MS = 5000L
 
         private val _status = MutableStateFlow(SessionStatus(SessionState.IDLE))
         val status: StateFlow<SessionStatus> = _status.asStateFlow()

@@ -6,13 +6,15 @@ import android.util.Log
 import com.gate6.jarvis.mcp.oauth.McpOAuth
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Process-wide MCP state: one [McpClient] per configured server and a short-lived cache of each
@@ -27,6 +29,8 @@ object McpRegistry {
     private data class Cached(val tools: List<McpTool>, val at: Long)
 
     private val clients = ConcurrentHashMap<String, Entry>()
+    /** Background work that must not hold up a caller: slow tool listings, session teardown. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val cache = ConcurrentHashMap<String, Cached>()
 
     data class LoadResult(
@@ -66,7 +70,11 @@ object McpRegistry {
     /** Drops the client and cached tools, e.g. after the server was edited or deleted. */
     fun forget(serverId: String) {
         cache.remove(serverId)
-        clients.remove(serverId)
+        clients.remove(serverId)?.let { closeLater(it.client) }
+    }
+
+    private fun closeLater(client: McpClient) {
+        scope.launch { client.close() }
     }
 
     private suspend fun fetch(store: McpServerStore, s: McpServer, timeoutMs: Long, useCache: Boolean): Result<List<McpTool>> {
@@ -74,14 +82,18 @@ object McpRegistry {
         if (useCache && cached != null && SystemClock.elapsedRealtime() - cached.at < CACHE_TTL_MS) {
             return Result.success(cached.tools)
         }
+        // Runs in the registry's scope so the caller waits at most timeoutMs even if part of the work
+        // ignores cancellation (e.g. a token refresh); a late result still fills the cache.
+        val job = scope.async {
+            client(store, s).listTools().also { cache[s.id] = Cached(it, SystemClock.elapsedRealtime()) }
+        }
         return try {
-            val tools = withTimeout(timeoutMs) { client(store, s).listTools() }
-            cache[s.id] = Cached(tools, SystemClock.elapsedRealtime())
+            val tools = withTimeoutOrNull(timeoutMs) { job.await() }
+                ?: return fallback(s, cached, McpException("timed out"))
             Log.i(TAG, "${s.name}: ${tools.size} tools")
             Result.success(tools)
-        } catch (e: TimeoutCancellationException) {
-            fallback(s, cached, McpException("timed out"))
         } catch (e: CancellationException) {
+            job.cancel()
             throw e
         } catch (e: Exception) {
             fallback(s, cached, e)
@@ -99,7 +111,10 @@ object McpRegistry {
         val oauth = McpOAuth.isSignedIn(store.context, s.id)
         val token = if (oauth) null else store.token(s.id)
         val authKey = if (oauth) "oauth" else token
-        clients[s.id]?.let { if (it.url == s.url && it.authKey == authKey) return it.client }
+        clients[s.id]?.let {
+            if (it.url == s.url && it.authKey == authKey) return it.client
+            closeLater(it.client) // credentials or URL changed
+        }
         val auth: McpAuth = if (oauth) McpOAuth.TokenProvider(store.context, s.id) else StaticToken(token)
         return McpClient(s.url, auth).also { clients[s.id] = Entry(s.url, authKey, it) }
     }

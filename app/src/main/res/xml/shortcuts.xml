@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_jarvis"
+        android:shortcutId="talk"
+        android:shortcutLongLabel="@string/shortcut_talk_long"
+        android:shortcutShortLabel="@string/shortcut_talk">
+        <intent
+            android:action="com.gate6.jarvis.TALK"
+            android:targetClass="com.gate6.jarvis.TalkActivity"
+            android:targetPackage="com.gate6.jarvis" />
+    </shortcut>
+</shortcuts>

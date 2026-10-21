@@ -25,6 +25,7 @@ class MainActivity : Activity() {
     private val observers = mutableListOf<Job>()
     private lateinit var config: JarvisConfig
     private lateinit var model: EditText
+    private lateinit var wake: Switch
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,8 +38,12 @@ class MainActivity : Activity() {
             config.model = model.text.toString()
             if (hasMic()) JarvisService.startSession(this) else requestPermissions()
         }
-        findViewById<Button>(R.id.stop).setOnClickListener { JarvisService.stop(this) }
-        val wake = findViewById<Switch>(R.id.wake)
+        findViewById<Button>(R.id.stop).setOnClickListener {
+            val inConversation = VoiceSessionManager.status.value.state !in setOf(SessionState.IDLE, SessionState.ERROR)
+            // Stop ends a conversation; with none running it turns the wake word off (via the switch, so it stays in sync).
+            if (!inConversation && wake.isChecked) wake.isChecked = false else JarvisService.stop(this)
+        }
+        wake = findViewById(R.id.wake)
         wake.isChecked = config.wakeWordEnabled
         wake.setOnCheckedChangeListener { _, on ->
             config.wakeWordEnabled = on
@@ -71,8 +76,10 @@ class MainActivity : Activity() {
             VoiceSessionManager.status.combine(JarvisService.wakeListening) { s, w -> s to w }.collect { (s, waiting) ->
                 val label = s.state.name.lowercase().replaceFirstChar { it.uppercase() }
                 status.text = when {
+                    // Between conversations the wake word state matters more than the last error.
+                    waiting && s.state == SessionState.ERROR -> "Waiting for \"Hey Jarvis\"\nLast error: ${s.detail}"
+                    waiting && s.state == SessionState.IDLE -> "Waiting for \"Hey Jarvis\""
                     s.state == SessionState.ERROR -> "Error: ${s.detail}"
-                    s.state == SessionState.IDLE && waiting -> "Waiting for \"Hey Jarvis\""
                     else -> label
                 }
             }
@@ -82,6 +89,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // The service may have turned the wake word off (notification "Turn off"); keep the switch honest.
+        if (wake.isChecked != config.wakeWordEnabled) wake.isChecked = config.wakeWordEnabled
         // A microphone service may only start while the app is visible: (re)start wake listening here,
         // e.g. after a reboot or after the system stopped the service.
         if (config.wakeWordEnabled && hasMic()) JarvisService.startListening(this)

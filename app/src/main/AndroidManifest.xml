@@ -31,7 +31,20 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- One-tap "Talk to Jarvis" launcher shortcut; no UI of its own. Not exported: launchers start
+             shortcuts as this app, and other apps must not be able to open the mic. -->
+        <activity
+            android:name=".TalkActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <activity
             android:name=".ServersActivity"

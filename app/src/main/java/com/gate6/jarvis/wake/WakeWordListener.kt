@@ -23,11 +23,23 @@ class WakeWordListener(private val context: Context, val cutoff: Float) {
 
     val isRunning: Boolean get() = running
 
+    /**
+     * Loads the model and starts listening. Returns false if the model could not be loaded.
+     * [onWake] runs on the main thread after a detection; [onStopped] if listening ends on its own
+     * for any other reason.
+     */
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
-    fun start(onWake: () -> Unit) {
-        if (running) return
+    fun start(onWake: () -> Unit, onStopped: () -> Unit = {}): Boolean {
+        if (running) return true
+        val detector = try {
+            WakeWordDetector(context, cutoff)
+        } catch (e: Exception) {
+            Log.e(TAG, "Wake word model failed to load", e)
+            return false
+        }
         running = true
-        thread = Thread({ loop(onWake) }, "jarvis-wake").apply { start() }
+        thread = Thread({ loop(detector, onWake, onStopped) }, "jarvis-wake").apply { start() }
+        return true
     }
 
     /** Stops listening and waits until the microphone is released. */
@@ -39,16 +51,10 @@ class WakeWordListener(private val context: Context, val cutoff: Float) {
     }
 
     @Suppress("MissingPermission") // checked by the caller of start()
-    private fun loop(onWake: () -> Unit) {
+    private fun loop(detector: WakeWordDetector, onWake: () -> Unit, onStopped: () -> Unit) {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
-        val detector = try {
-            WakeWordDetector(context, cutoff)
-        } catch (e: Exception) {
-            Log.e(TAG, "Wake word model failed to load", e)
-            running = false
-            return
-        }
         val buf = ShortArray(CHUNK)
+        var woke = false
         try {
             while (running) {
                 val rec = openRecorder()
@@ -79,11 +85,17 @@ class WakeWordListener(private val context: Context, val cutoff: Float) {
                 if (detected && running) {
                     Log.i(TAG, "Wake word detected")
                     running = false
+                    woke = true
                     main.post(onWake)
                 }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Wake word listener crashed", e)
         } finally {
             detector.close()
+            val wasRunning = running
+            running = false
+            if (!woke && wasRunning) main.post(onStopped)
         }
     }
 

@@ -26,7 +26,11 @@ import kotlinx.serialization.json.put
  * Plain JVM code with blocking HTTP: call from a background thread.
  */
 object OAuth {
-    class OAuthException(message: String) : IOException(message)
+    /** [error] is the OAuth error code from the server (e.g. "invalid_grant"), when it sent one. */
+    class OAuthException(message: String, val error: String? = null, val status: Int? = null) : IOException(message) {
+        /** True when the grant itself is dead, as opposed to a temporary server or network problem. */
+        val grantRejected: Boolean get() = error == "invalid_grant" || error == "invalid_client" || error == "unauthorized_client"
+    }
 
     /** Everything needed to run the flow for one MCP server. */
     data class ServerAuth(
@@ -288,7 +292,7 @@ object OAuth {
         if (code !in 200..299) {
             val err = runCatching { parse(text) }.getOrNull()
             val detail = listOfNotNull(err?.str("error"), err?.str("error_description")).joinToString(": ").ifEmpty { text.take(200) }
-            throw OAuthException("$what failed (HTTP $code): $detail")
+            throw OAuthException("$what failed (HTTP $code): $detail", err?.str("error"), code)
         }
         return runCatching { parse(text) }.getOrElse { throw OAuthException("$what returned invalid JSON") }
     }

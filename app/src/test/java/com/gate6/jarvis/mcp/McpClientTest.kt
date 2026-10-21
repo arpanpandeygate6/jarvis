@@ -30,12 +30,14 @@ class McpClientTest {
     @Volatile private var useSse = false
     @Volatile private var expireSessionOnce = false
     @Volatile private var requiredToken: String? = null
+    @Volatile private var stallMs = 0L
     private var sessions = 0
 
     @Before
     fun setUp() {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/mcp") { ex -> handle(ex) }
+        server.executor = java.util.concurrent.Executors.newCachedThreadPool() // a stalled request must not block others
         server.start()
         url = "http://127.0.0.1:${server.address.port}/mcp"
     }
@@ -49,6 +51,7 @@ class McpClientTest {
                 return reply(ex, 401, "unauthorized")
             }
             if (ex.requestMethod == "DELETE") return reply(ex, 200, "")
+            if (stallMs > 0) Thread.sleep(stallMs) // accepts the connection, then says nothing
             val msg = Json.parseToJsonElement(ex.requestBody.bufferedReader().readText()).jsonObject
             val method = (msg["method"] as JsonPrimitive).content
             val sid = ex.requestHeaders.getFirst("Mcp-Session-Id")
@@ -152,6 +155,16 @@ class McpClientTest {
         } catch (e: McpException) {
             assertEquals("bad args", e.message)
         }
+    }
+
+    @Test
+    fun timeoutReallyStopsAStalledServer() = runBlocking {
+        stallMs = 15_000
+        val started = System.currentTimeMillis()
+        val result = kotlinx.coroutines.withTimeoutOrNull(1_000) { McpClient(url).listTools() }
+        val took = System.currentTimeMillis() - started
+        assertEquals(null, result)
+        assertTrue("cancellation took ${took}ms", took < 3_000)
     }
 
     /** Real-world interop check; runs only with MCP_LIVE_TEST=1 (needs internet). */

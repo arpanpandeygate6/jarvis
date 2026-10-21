@@ -16,7 +16,7 @@ object Confirmation {
         RegexOption.IGNORE_CASE,
     )
     private val YES = Regex(
-        """\b(yes|yeah|yea|yep|yup|sure|go ahead|do it|confirm(ed)?|okay|ok|please do|absolutely|correct|proceed|send it|haan|haa|han|ha|theek hai|thik hai|kar do|karo)\b""",
+        """\b(yes|yeah|yea|yep|yup|sure|go ahead|do it|confirm(ed)?|okay|ok|please do|absolutely|correct|proceed|send it|haan|haa|theek hai|thik hai|kar do|karo)\b""",
         RegexOption.IGNORE_CASE,
     )
     private val NO = Regex(
@@ -47,5 +47,11 @@ object Confirmation {
         else -> Verdict(true)
     }
 
-    fun isClearYes(text: String): Boolean = YES.containsMatchIn(text) && !NO.containsMatchIn(text)
+    /** A follow-up question ("okay, which branch?") is not consent, even if it starts with "okay". */
+    private val QUESTION = Regex("""\?|\b(what|which|who|whom|where|when|why|how|kya|kaun|kaunsa)\b""", RegexOption.IGNORE_CASE)
+    private const val MAX_REPLY_WORDS = 15
+
+    fun isClearYes(text: String): Boolean =
+        YES.containsMatchIn(text) && !NO.containsMatchIn(text) && !QUESTION.containsMatchIn(text) &&
+            text.trim().split(Regex("\\s+")).size <= MAX_REPLY_WORDS
 }

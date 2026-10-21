@@ -61,11 +61,12 @@ object McpOAuth {
     suspend fun complete(context: Context, redirect: Uri): String = runInterruptible(Dispatchers.IO) {
         val secrets = SecretStore(context)
         val pending = secrets.get(PENDING)?.let(OAuth::parse) ?: throw OAuth.OAuthException("No sign-in in progress")
-        secrets.put(PENDING, null) // single use
-        val serverId = pending.string("server_id")
+        // Check state before consuming: a stray or forged redirect must not cancel the real sign-in.
         if (redirect.getQueryParameter("state") != pending.string("state")) {
             throw OAuth.OAuthException("Sign-in response did not match the request (state)")
         }
+        secrets.put(PENDING, null) // single use
+        val serverId = pending.string("server_id")
         if (System.currentTimeMillis() - pending.string("created").toLong() > PENDING_MAX_AGE_MS) {
             throw OAuth.OAuthException("Sign-in took too long; please try again")
         }
@@ -108,8 +109,15 @@ object McpOAuth {
                 save(app, serverId, stored.copy(tokens = fresh))
                 fresh
             } catch (e: OAuth.OAuthException) {
-                Log.w(TAG, "Token refresh failed; sign-in needed", e)
-                save(app, serverId, stored.copy(tokens = null)) // forces a new sign-in
+                if (e.grantRejected) {
+                    Log.w(TAG, "Refresh token rejected; sign-in needed", e)
+                    save(app, serverId, stored.copy(tokens = null)) // forces a new sign-in
+                } else {
+                    Log.w(TAG, "Token refresh failed for now; keeping the sign-in", e)
+                }
+                null
+            } catch (e: java.io.IOException) {
+                Log.w(TAG, "Token refresh network error; keeping the sign-in", e)
                 null
             }
         }
