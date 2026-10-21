@@ -2,6 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Lets Custom Tabs find a browser on Android 11+. -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Switch to communication mode + speaker routing so echo cancellation works on speakerphone. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -29,7 +36,25 @@
         <activity
             android:name=".ServersActivity"
             android:exported="false"
-            android:label="MCP servers" />
+            android:label="MCP servers"
+            android:launchMode="singleTop" />
+
+        <!-- OAuth redirect from the browser after signing in to an MCP server. -->
+        <activity
+            android:name=".OAuthCallbackActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="oauth"
+                    android:path="/callback"
+                    android:scheme="com.gate6.jarvis" />
+            </intent-filter>
+        </activity>
 
         <!-- Single long-lived mic owner. Started only while an activity is visible (Android 14+ rule);
              once running it keeps while-in-use mic access, so later sessions need no background FGS start. -->

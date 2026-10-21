@@ -66,6 +66,7 @@ dependencies {
     // Versions match firebase-ai 18.0.0's runtime deps (it doesn't expose them at compile time).
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    implementation("androidx.browser:browser:1.8.0") // Custom Tabs for MCP sign-in
     // On-device wake word model runtime (classic Interpreter API).
     implementation("com.google.ai.edge.litert:litert:1.4.2")
 

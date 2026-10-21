@@ -105,7 +105,7 @@ class McpClientTest {
 
     @Test
     fun handshakeListsAllPagesAndSendsHeaders() = runBlocking {
-        val tools = McpClient(url, null).listTools()
+        val tools = McpClient(url).listTools()
         assertEquals(listOf("echo", "create"), tools.map { it.name })
         assertTrue(tools[0].readOnly)
         assertEquals(listOf("initialize", "notifications/initialized", "tools/list", "tools/list"), seen.map { it.first })
@@ -117,14 +117,14 @@ class McpClientTest {
     @Test
     fun parsesSseResponsesAndSkipsNotifications() = runBlocking {
         useSse = true
-        val c = McpClient(url, null)
+        val c = McpClient(url)
         assertEquals(2, c.listTools().size)
         assertEquals("""got {"x":1}""", c.callTool("echo", buildJsonObject { put("x", 1) }))
     }
 
     @Test
     fun reinitializesWhenSessionExpires() = runBlocking {
-        val c = McpClient(url, null)
+        val c = McpClient(url)
         c.listTools()
         expireSessionOnce = true
         assertEquals(2, c.listTools().size)
@@ -135,9 +135,9 @@ class McpClientTest {
     @Test
     fun sendsBearerTokenAndReportsAuthFailure() = runBlocking {
         requiredToken = "secret"
-        assertEquals(2, McpClient(url, "secret").listTools().size)
+        assertEquals(2, McpClient(url, StaticToken("secret")).listTools().size)
         try {
-            McpClient(url, "wrong").listTools()
+            McpClient(url, StaticToken("wrong")).listTools()
             fail("expected auth error")
         } catch (e: McpAuthException) {
             assertTrue(e.message!!.contains("401"))
@@ -147,7 +147,7 @@ class McpClientTest {
     @Test
     fun surfacesJsonRpcErrors() = runBlocking {
         try {
-            McpClient(url, null).callTool("fail", JsonObject(emptyMap()))
+            McpClient(url).callTool("fail", JsonObject(emptyMap()))
             fail("expected error")
         } catch (e: McpException) {
             assertEquals("bad args", e.message)
@@ -158,7 +158,7 @@ class McpClientTest {
     @Test
     fun liveDeepWiki() = runBlocking {
         assumeTrue(System.getenv("MCP_LIVE_TEST") == "1")
-        val c = McpClient("https://mcp.deepwiki.com/mcp", null)
+        val c = McpClient("https://mcp.deepwiki.com/mcp")
         val tools = c.listTools()
         println("DeepWiki tools: " + tools.joinToString { "${it.name}(readOnly=${it.readOnly})" })
         assertTrue(tools.isNotEmpty())

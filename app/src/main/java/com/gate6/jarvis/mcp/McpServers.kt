@@ -24,6 +24,7 @@ data class McpServer(
 
 /** Non-secret server list in SharedPreferences; tokens go through [SecretStore]. */
 class McpServerStore(context: Context) {
+    val context: Context = context.applicationContext
     private val prefs = context.getSharedPreferences("jarvis_mcp", Context.MODE_PRIVATE)
     private val secrets = SecretStore(context)
 
@@ -56,6 +57,7 @@ class McpServerStore(context: Context) {
     fun delete(id: String) {
         write(all().filterNot { it.id == id })
         secrets.put(tokenKey(id), null)
+        com.gate6.jarvis.mcp.oauth.McpOAuth.signOut(context, id)
     }
 
     fun token(id: String): String? = secrets.get(tokenKey(id))

@@ -3,6 +3,7 @@ package com.gate6.jarvis.mcp
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import com.gate6.jarvis.mcp.oauth.McpOAuth
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +22,8 @@ object McpRegistry {
     private const val TAG = "McpRegistry"
     private const val CACHE_TTL_MS = 10 * 60_000L
 
-    private data class Entry(val url: String, val token: String?, val client: McpClient)
+    /** [authKey] identifies the credentials the client was built with ("oauth" or the static token). */
+    private data class Entry(val url: String, val authKey: String?, val client: McpClient)
     private data class Cached(val tools: List<McpTool>, val at: Long)
 
     private val clients = ConcurrentHashMap<String, Entry>()
@@ -93,8 +95,12 @@ object McpRegistry {
     }
 
     private fun client(store: McpServerStore, s: McpServer): McpClient {
-        val token = store.token(s.id)
-        clients[s.id]?.let { if (it.url == s.url && it.token == token) return it.client }
-        return McpClient(s.url, token).also { clients[s.id] = Entry(s.url, token, it) }
+        // A signed-in OAuth session wins over a pasted token.
+        val oauth = McpOAuth.isSignedIn(store.context, s.id)
+        val token = if (oauth) null else store.token(s.id)
+        val authKey = if (oauth) "oauth" else token
+        clients[s.id]?.let { if (it.url == s.url && it.authKey == authKey) return it.client }
+        val auth: McpAuth = if (oauth) McpOAuth.TokenProvider(store.context, s.id) else StaticToken(token)
+        return McpClient(s.url, auth).also { clients[s.id] = Entry(s.url, authKey, it) }
     }
 }

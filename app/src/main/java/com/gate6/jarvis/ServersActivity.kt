@@ -2,6 +2,8 @@ package com.gate6.jarvis
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
@@ -14,10 +16,13 @@ import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.browser.customtabs.CustomTabsIntent
+import com.gate6.jarvis.mcp.McpAuthException
 import com.gate6.jarvis.mcp.McpRegistry
 import com.gate6.jarvis.mcp.McpServer
 import com.gate6.jarvis.mcp.McpServerStore
 import com.gate6.jarvis.mcp.ToolCatalog
+import com.gate6.jarvis.mcp.oauth.McpOAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
@@ -26,6 +31,11 @@ import kotlinx.coroutines.withContext
 
 /** Add, edit, test and remove MCP servers. Tokens are write-only here: they are never shown again. */
 class ServersActivity : Activity() {
+    companion object {
+        const val EXTRA_SIGNED_IN = "signed_in_server"
+        const val EXTRA_SIGN_IN_ERROR = "sign_in_error"
+    }
+
     private val scope = MainScope()
     private lateinit var store: McpServerStore
     private lateinit var adapter: ArrayAdapter<McpServer>
@@ -41,8 +51,9 @@ class ServersActivity : Activity() {
                 val v = super.getView(position, convertView, parent)
                 val s = getItem(position)!!
                 v.findViewById<TextView>(android.R.id.text1).text = if (s.enabled) s.name else "${s.name} (off)"
+                val signedIn = if (McpOAuth.isSignedIn(context, s.id)) "Signed in" else null
                 v.findViewById<TextView>(android.R.id.text2).text =
-                    listOfNotNull(s.url, lastResult[s.id]).joinToString("\n")
+                    listOfNotNull(s.url, signedIn, lastResult[s.id]).joinToString("\n")
                 return v
             }
         }
@@ -53,6 +64,28 @@ class ServersActivity : Activity() {
         }
         findViewById<Button>(R.id.add).setOnClickListener { edit(null) }
         refresh()
+        handleSignInResult(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleSignInResult(intent)
+    }
+
+    /** Result of the browser sign-in, delivered by [OAuthCallbackActivity]. */
+    private fun handleSignInResult(intent: Intent?) {
+        intent ?: return
+        intent.getStringExtra(EXTRA_SIGN_IN_ERROR)?.let {
+            Toast.makeText(this, it, Toast.LENGTH_LONG).show()
+            intent.removeExtra(EXTRA_SIGN_IN_ERROR)
+        }
+        intent.getStringExtra(EXTRA_SIGNED_IN)?.let { id ->
+            intent.removeExtra(EXTRA_SIGNED_IN)
+            scope.launch {
+                val server = withContext(Dispatchers.IO) { store.all() }.firstOrNull { it.id == id } ?: return@launch
+                test(server, offerSignIn = false)
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -91,6 +124,11 @@ class ServersActivity : Activity() {
             text = "Remove saved token"
             visibility = if (hasToken) View.VISIBLE else View.GONE
         }
+        val signedIn = existing != null && McpOAuth.isSignedIn(this, existing.id)
+        val signOut = CheckBox(this).apply {
+            text = "Sign out"
+            visibility = if (signedIn) View.VISIBLE else View.GONE
+        }
         val enabled = CheckBox(this).apply {
             text = "Use in conversations"
             isChecked = existing?.enabled ?: true
@@ -102,7 +140,7 @@ class ServersActivity : Activity() {
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, 0)
-            listOf(name, url, token, clearToken, enabled, trust).forEach(::addView)
+            listOf(name, url, token, clearToken, signOut, enabled, trust).forEach(::addView)
         }
 
         val builder = AlertDialog.Builder(this)
@@ -128,6 +166,7 @@ class ServersActivity : Activity() {
                             else -> null // keep
                         }
                         dialog.dismiss()
+                        if (signOut.isChecked) McpOAuth.signOut(this, server.id)
                         saveAndTest(server, newToken)
                     }
                 }
@@ -140,19 +179,52 @@ class ServersActivity : Activity() {
         scope.launch {
             withContext(Dispatchers.IO) { store.save(server, token) }
             McpRegistry.forget(server.id)
-            lastResult[server.id] = "Testing…"
-            refresh()
-            val result = McpRegistry.test(this@ServersActivity, server)
-            val summary = result.fold(
-                onSuccess = { tools ->
-                    val writes = tools.count { ToolCatalog.needsConfirmation(it, server.trustUnmarked) }
-                    "Connected: ${tools.size} tools ($writes ask before running)"
-                },
-                onFailure = { "Failed: ${it.message ?: it.javaClass.simpleName}" },
-            )
-            lastResult[server.id] = summary
+            test(server, offerSignIn = true)
+        }
+    }
+
+    private suspend fun test(server: McpServer, offerSignIn: Boolean) {
+        lastResult[server.id] = "Testing…"
+        refresh()
+        val result = McpRegistry.test(this@ServersActivity, server)
+        val authError = result.exceptionOrNull() as? McpAuthException
+        if (offerSignIn && authError?.status == 401 && !store.hasToken(server.id)) {
+            lastResult[server.id] = "Needs sign-in"
             adapter.notifyDataSetChanged()
-            Toast.makeText(this@ServersActivity, "${server.name}: $summary", Toast.LENGTH_LONG).show()
+            offerSignIn(server, authError.wwwAuthenticate)
+            return
+        }
+        val summary = result.fold(
+            onSuccess = { tools ->
+                val writes = tools.count { ToolCatalog.needsConfirmation(it, server.trustUnmarked) }
+                "Connected: ${tools.size} tools ($writes ask before running)"
+            },
+            onFailure = { "Failed: ${it.message ?: it.javaClass.simpleName}" },
+        )
+        lastResult[server.id] = summary
+        adapter.notifyDataSetChanged()
+        Toast.makeText(this@ServersActivity, "${server.name}: $summary", Toast.LENGTH_LONG).show()
+    }
+
+    private fun offerSignIn(server: McpServer, wwwAuthenticate: String?) {
+        AlertDialog.Builder(this)
+            .setTitle("Sign in to ${server.name}?")
+            .setMessage("This server needs you to sign in. Jarvis will open your browser; after you approve, you come back here.")
+            .setPositiveButton("Sign in") { _, _ -> signIn(server, wwwAuthenticate) }
+            .setNegativeButton("Not now", null)
+            .show()
+    }
+
+    private fun signIn(server: McpServer, wwwAuthenticate: String?) {
+        scope.launch {
+            try {
+                val url = McpOAuth.begin(this@ServersActivity, server, wwwAuthenticate)
+                CustomTabsIntent.Builder().build().launchUrl(this@ServersActivity, Uri.parse(url))
+            } catch (e: Exception) {
+                lastResult[server.id] = "Sign-in failed: ${e.message}"
+                adapter.notifyDataSetChanged()
+                Toast.makeText(this@ServersActivity, "Could not start sign-in: ${e.message}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 

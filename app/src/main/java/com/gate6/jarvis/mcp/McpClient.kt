@@ -35,13 +35,29 @@ data class McpTool(
 }
 
 open class McpException(message: String) : IOException(message)
-class McpAuthException(message: String) : McpException(message)
+
+/** HTTP 401/403. [wwwAuthenticate] is the server's challenge header, used to discover OAuth sign-in. */
+class McpAuthException(message: String, val wwwAuthenticate: String? = null, val status: Int = 401) : McpException(message)
+
+/** Where an MCP client gets its bearer token. */
+interface McpAuth {
+    suspend fun token(): String?
+
+    /** Called after a 401. Returns true when a retry may now succeed (e.g. the token was refreshed). */
+    suspend fun refresh(): Boolean
+}
+
+class StaticToken(private val value: String?) : McpAuth {
+    override suspend fun token() = value?.takeIf { it.isNotBlank() }
+    override suspend fun refresh() = false
+}
 
 /**
  * MCP client over the Streamable HTTP transport (JSON-RPC over POST; replies as JSON or SSE).
- * Auth is an optional static bearer token. One instance per server; safe to share between coroutines.
+ * One instance per server; safe to share between coroutines.
  */
-class McpClient(private val url: String, private val token: String?) {
+class McpClient(private val url: String, private val auth: McpAuth? = null) {
+
     private val ids = AtomicLong(1)
     private val initLock = Mutex()
     @Volatile private var sessionId: String? = null
@@ -79,8 +95,9 @@ class McpClient(private val url: String, private val token: String?) {
         sessionId = null
         initialized = false
         runCatching {
+            val token = auth?.token()
             runInterruptible(Dispatchers.IO) {
-                val conn = open("DELETE", sid, CONNECT_TIMEOUT_MS)
+                val conn = open("DELETE", sid, CONNECT_TIMEOUT_MS, token)
                 conn.responseCode
                 conn.disconnect()
             }
@@ -91,7 +108,7 @@ class McpClient(private val url: String, private val token: String?) {
         if (initialized) return
         initLock.withLock {
             if (initialized) return
-            val result = post(
+            val result = postAuthed(
                 rpc("initialize", buildJsonObject {
                     put("protocolVersion", PROTOCOL_VERSION)
                     putJsonObject("capabilities") {}
@@ -104,7 +121,7 @@ class McpClient(private val url: String, private val token: String?) {
                 captureSession = true,
             ) ?: throw McpException("Server sent no reply to initialize")
             protocolVersion = (result["protocolVersion"] as? JsonPrimitive)?.contentOrNull ?: PROTOCOL_VERSION
-            post(notification("notifications/initialized"), READ_TIMEOUT_MS)
+            postAuthed(notification("notifications/initialized"), READ_TIMEOUT_MS)
             initialized = true
         }
     }
@@ -112,14 +129,25 @@ class McpClient(private val url: String, private val token: String?) {
     private suspend fun request(method: String, params: JsonObject, readTimeoutMs: Int = READ_TIMEOUT_MS): JsonObject {
         ensureInitialized()
         return try {
-            post(rpc(method, params), readTimeoutMs) ?: throw McpException("No reply to $method")
+            postAuthed(rpc(method, params), readTimeoutMs) ?: throw McpException("No reply to $method")
         } catch (e: SessionExpiredException) {
             // Server dropped our session (restart, expiry): start a fresh one and retry once.
             Log.i(TAG, "MCP session expired at $url; reinitializing")
             sessionId = null
             initialized = false
             ensureInitialized()
-            post(rpc(method, params), readTimeoutMs) ?: throw McpException("No reply to $method")
+            postAuthed(rpc(method, params), readTimeoutMs) ?: throw McpException("No reply to $method")
+        }
+    }
+
+    /** [post] with the current token; on a 401 asks [auth] to refresh and retries once. */
+    private suspend fun postAuthed(message: JsonObject, readTimeoutMs: Int, captureSession: Boolean = false): JsonObject? {
+        val token = auth?.token()
+        return try {
+            post(message, readTimeoutMs, token, captureSession)
+        } catch (e: McpAuthException) {
+            if (e.status != 401 || auth?.refresh() != true) throw e
+            post(message, readTimeoutMs, auth.token(), captureSession)
         }
     }
 
@@ -136,9 +164,9 @@ class McpClient(private val url: String, private val token: String?) {
     }
 
     /** POSTs one message. Returns the JSON-RPC `result` for requests, null for notifications. */
-    private suspend fun post(message: JsonObject, readTimeoutMs: Int, captureSession: Boolean = false): JsonObject? =
+    private suspend fun post(message: JsonObject, readTimeoutMs: Int, token: String?, captureSession: Boolean): JsonObject? =
         runInterruptible(Dispatchers.IO) {
-            val conn = open("POST", sessionId, readTimeoutMs)
+            val conn = open("POST", sessionId, readTimeoutMs, token)
             try {
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/json")
@@ -149,7 +177,10 @@ class McpClient(private val url: String, private val token: String?) {
                 when {
                     code == 404 && sessionId != null && !captureSession -> throw SessionExpiredException()
                     code == 401 || code == 403 -> throw McpAuthException(
-                        "Server refused access (HTTP $code). Check the access token."
+                        if (code == 401) "Server needs sign-in or a valid access token (HTTP 401)."
+                        else "Server refused access (HTTP 403). The account may lack permission.",
+                        conn.getHeaderField("WWW-Authenticate"),
+                        code,
                     )
                     code !in 200..299 -> throw McpException("HTTP $code from MCP server: ${errorBody(conn)}")
                 }
@@ -185,13 +216,13 @@ class McpClient(private val url: String, private val token: String?) {
             }
         }
 
-    private fun open(method: String, sid: String?, readTimeoutMs: Int): HttpURLConnection {
+    private fun open(method: String, sid: String?, readTimeoutMs: Int, token: String?): HttpURLConnection {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.requestMethod = method
         conn.connectTimeout = CONNECT_TIMEOUT_MS
         conn.readTimeout = readTimeoutMs
         conn.setRequestProperty("Accept", "application/json, text/event-stream")
-        token?.takeIf { it.isNotBlank() }?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
+        token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
         sid?.let { conn.setRequestProperty(SESSION_HEADER, it) }
         protocolVersion?.let { conn.setRequestProperty("MCP-Protocol-Version", it) }
         return conn

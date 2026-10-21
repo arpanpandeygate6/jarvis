@@ -68,8 +68,14 @@ tool count. Tokens are encrypted with an Android Keystore key and never shown ag
 - Many servers don't annotate their tools at all, so even lookups would ask for a yes. For servers you
   know are read-only, tick **Skip the yes/no for tools this server doesn't mark**. Tools a server
   explicitly marks as changing data still always ask.
-- OAuth sign-in is not supported yet: use servers that accept a static token (e.g. GitHub's MCP server
-  with a personal access token) or no auth.
+- **Sign-in (OAuth)**: if a server answers "401, sign in", Save and test offers **Sign in**. Jarvis
+  finds the sign-in server from the MCP server's metadata, registers itself automatically, and opens
+  a browser tab (PKCE, `resource` indicator, state and `iss` checks); after you approve you land back
+  in the app and it re-tests. Tokens are Keystore-encrypted and refreshed automatically; if refresh
+  fails the server shows "Needs sign-in" again. Edit a server → **Sign out** to forget it. Works with
+  servers that support dynamic client registration (e.g. `https://mcp.notion.com/mcp`,
+  `https://mcp.linear.app/mcp`). Servers that need a pre-registered client ID (e.g. GitHub) still
+  need a personal access token in the token field.
 
 ### Device test script
 
@@ -77,9 +83,12 @@ tool count. Tokens are encrypted with an Android Keystore key and never shown ag
 2. Talk to Jarvis: "What is the OkHttp repo by Square about?" → it uses DeepWiki and answers briefly.
 3. Untick the box, start a new conversation, ask again → Jarvis reads the action back and asks first;
    say "no" → nothing runs; ask again and say "yes" → it runs.
-4. Turn on airplane mode, start a conversation → status shows the server as unavailable; chat still works.
-5. Milestone 1 checks still pass: barge-in, "bye Jarvis", 20 s silence ends the session.
-6. Wake word: turn it on, lock the phone, say "Hey Jarvis" from 1–3 m away → beep → ask something →
+4. Sign-in: add `https://mcp.linear.app/mcp` (or Notion), Save and test → Sign in → approve in the
+   browser → back in Jarvis, the row shows "Signed in" and "Connected: N tools". Ask Jarvis about
+   your Linear issues.
+5. Turn on airplane mode, start a conversation → status shows the server as unavailable; chat still works.
+6. Milestone 1 checks still pass: barge-in, "bye Jarvis", 20 s silence ends the session.
+7. Wake word: turn it on, lock the phone, say "Hey Jarvis" from 1–3 m away → beep → ask something →
    say "bye Jarvis" → notification goes back to "Say Hey Jarvis". Try a few people and accents, and a
    TV or music playing (false wakes), and note which sensitivity works.
 
