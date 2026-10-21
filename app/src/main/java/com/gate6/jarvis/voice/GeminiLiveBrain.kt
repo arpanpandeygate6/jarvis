@@ -21,7 +21,6 @@ import com.google.firebase.ai.type.LiveServerToolCallCancellation
 import com.google.firebase.ai.type.LiveSession
 import com.google.firebase.ai.type.LiveSessionResumptionUpdate
 import com.google.firebase.ai.type.PublicPreviewAPI
-import com.google.firebase.ai.type.QuotaExceededException
 import com.google.firebase.ai.type.ResponseModality
 import com.google.firebase.ai.type.SessionResumptionConfig
 import com.google.firebase.ai.type.SlidingWindow
@@ -186,19 +185,22 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
         }
     }
 
+    /** Tries each model in turn: each has its own free quota, so one running out doesn't stop Jarvis. */
     private suspend fun connectWithFallback(config: BrainConfig, tools: List<ToolSpec>): LiveSession {
-        val live = try {
-            connect(config, config.model, tools).also { listener.onConnected(config.model) }
-        } catch (e: Exception) {
-            val fallback = config.fallbackModel
-            // Only a rejected model is worth retrying; setup, quota and cancellation errors are not.
-            if (e is CancellationException || e is QuotaExceededException || e is IllegalStateException ||
-                fallback == null || fallback == config.model
-            ) throw e
-            Log.w(TAG, "Model ${config.model} failed (${e.message}); falling back to $fallback")
-            connect(config, fallback, tools).also { listener.onConnected(fallback) }
+        var last: Exception? = null
+        for (model in config.models) {
+            if (stopping) break
+            try {
+                return connect(config, model, tools).also { listener.onConnected(model) }
+            } catch (e: Exception) {
+                // Setup errors (Firebase missing) and cancellation fail the same way on every model.
+                if (e is CancellationException || e is IllegalStateException) throw e
+                Log.w(TAG, "Model $model failed (${e.message}); trying the next one")
+                listener.onModelFailed(model, e)
+                last = e
+            }
         }
-        return live
+        throw last ?: IllegalStateException("No Live model configured")
     }
 
     private suspend fun connect(config: BrainConfig, modelName: String, tools: List<ToolSpec>): LiveSession {

@@ -57,6 +57,8 @@ class VoiceSessionManager(
     private val config = JarvisConfig(context)
     private var brain: VoiceBrain? = null
     private var idleJob: Job? = null
+    /** Models that failed while connecting the current session; see Listener.onConnected. */
+    private val failedThisStart = java.util.Collections.synchronizedList(mutableListOf<String>())
     private var ending = false
     private val heard = StringBuilder()
     private var catalog: ToolCatalog? = null
@@ -83,16 +85,14 @@ class VoiceSessionManager(
         brain = b
         publish(SessionState.CONNECTING)
         Latency.mark("session start")
-        // If the preferred model was rejected last time, go straight to the fallback (a failed
-        // connect costs a full round trip) and keep the preferred one as the retry.
-        val preferred = config.model
-        val skipPreferred = config.rejectedModel == preferred && preferred != JarvisConfig.FALLBACK_MODEL
+        // Models that failed in the last hour (quota, rejected) go last: a failed connect costs a round trip.
+        failedThisStart.clear()
+        val models = ModelChain.order(config.model, JarvisConfig.FALLBACK_MODELS, config.modelFailures, System.currentTimeMillis())
         scope.launch {
             try {
                 b.start(
                     BrainConfig(
-                        model = if (skipPreferred) JarvisConfig.FALLBACK_MODEL else preferred,
-                        fallbackModel = if (skipPreferred) preferred else JarvisConfig.FALLBACK_MODEL,
+                        models = models,
                         voice = config.voice,
                         systemInstruction = JarvisConfig.SYSTEM_INSTRUCTION,
                         tools = ::loadTools,
@@ -195,10 +195,18 @@ class VoiceSessionManager(
         }
 
         override fun onConnected(model: String) {
+            // Only remember failures when another model worked: if every model fails (offline, App
+            // Check), it isn't one model's quota, and penalising them all would just reorder the chain.
+            val failed = failedThisStart.toList()
+            failedThisStart.clear()
             scope.launch {
-                val preferred = config.model
-                config.rejectedModel = if (model == preferred) null else preferred
+                failed.forEach { config.markModel(it, failed = true) }
+                config.markModel(model, failed = false)
             }
+        }
+
+        override fun onModelFailed(model: String, error: Throwable) {
+            failedThisStart += model
         }
 
         override fun onEnded(error: Throwable?) {

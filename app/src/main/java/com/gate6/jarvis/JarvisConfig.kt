@@ -9,15 +9,20 @@ class JarvisConfig(context: Context) {
     var model: String
         get() = prefs.getString(KEY_MODEL, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL
         set(v) {
-            // A new model name gets a fresh chance even if the old one was rejected.
-            if (v.trim() != model) prefs.edit().remove(KEY_REJECTED).apply()
+            // A new model name gets a fresh chance even if it failed before.
+            if (v.trim() != model) markModel(v.trim(), failed = false)
             prefs.edit().putString(KEY_MODEL, v.trim()).apply()
         }
 
-    /** The preferred model, if the server rejected it last time; see VoiceSessionManager.start. */
-    var rejectedModel: String?
-        get() = prefs.getString(KEY_REJECTED, null)
-        set(v) = prefs.edit().putString(KEY_REJECTED, v).apply()
+    /** When each Live model last failed (out of quota or rejected); see [com.gate6.jarvis.voice.ModelChain]. */
+    val modelFailures: Map<String, Long>
+        get() = com.gate6.jarvis.voice.ModelChain.decode(prefs.getString(KEY_MODEL_FAILURES, null))
+
+    fun markModel(model: String, failed: Boolean) {
+        val m = modelFailures.toMutableMap()
+        if (failed) m[model] = System.currentTimeMillis() else if (m.remove(model) == null) return
+        prefs.edit().putString(KEY_MODEL_FAILURES, com.gate6.jarvis.voice.ModelChain.encode(m)).apply()
+    }
 
     var voice: String
         get() = prefs.getString(KEY_VOICE, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_VOICE
@@ -44,13 +49,20 @@ class JarvisConfig(context: Context) {
         /** Detection thresholds on the model's averaged probability; 0.97 is the model author's default. */
         val WAKE_CUTOFFS = floatArrayOf(0.97f, 0.90f, 0.80f)
         private const val KEY_MODEL = "model"
-        private const val KEY_REJECTED = "rejected_model"
+        private const val KEY_MODEL_FAILURES = "model_failures"
         private const val KEY_VOICE = "voice"
         private const val KEY_IDLE = "idle_timeout_sec"
 
         const val DEFAULT_MODEL = "gemini-3.1-flash-live-preview"
-        /** Native-audio Live model listed in the Firebase AI Logic docs; used if [DEFAULT_MODEL] is rejected. */
-        const val FALLBACK_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
+        /**
+         * Tried in order when the chosen model is out of free quota or rejected; each model has its own
+         * quota. All three connected on 2026-10-21. (The "-latest" alias is left out: it points at one
+         * of these, so it would share that model's quota.)
+         */
+        val FALLBACK_MODELS = listOf(
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            "gemini-2.5-flash-native-audio-preview-09-2025",
+        )
         const val DEFAULT_VOICE = "Charon"
         /** Gemini Live prebuilt voices. */
         val VOICES = listOf("Charon", "Puck", "Kore", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr")

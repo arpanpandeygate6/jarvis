@@ -49,7 +49,7 @@ notification ("Talk now" / "Turn off"). After each conversation it goes back to 
 - **Speed**: the mic opens about 0.3 s after the wake word and you can keep talking straight away
   ("Hey Jarvis, what's on my calendar?"). Speech is buffered while Jarvis connects
   (about 1–2 s) and sent as soon as the session is up. Tool lists and the App Check token are fetched
-  ahead of time, and a model the server rejected is skipped next time. Timings per conversation:
+  ahead of time, and a model that just failed is tried last. Timings per conversation:
   `adb logcat -s JarvisLatency`.
 - One-tap alternative: long-press the Jarvis icon → **Talk to Jarvis** (drag it to the home screen to
   pin it), or "Talk now" in the notification.
@@ -128,7 +128,9 @@ recorded clips.
 
 - Main screen settings apply to the next conversation: Gemini voice, and how many seconds of silence
   end a conversation (5–120, default 20).
-- Model is editable on the main screen. Default `gemini-3.1-flash-live-preview`; if that is rejected
-  the app retries once with `gemini-2.5-flash-native-audio-preview-12-2025`.
+- Model is editable on the main screen. Default `gemini-3.1-flash-live-preview`. Each model has its own
+  free quota, so when one is out of quota (or rejected) Jarvis tries the next:
+  `gemini-2.5-flash-native-audio-preview-12-2025`, then `-09-2025`. A model that failed while another
+  one worked is tried last for an hour. When all three are out, Jarvis says the free quota is reached.
 - Free tier: Google may use prompts/audio to improve products. Don't test with sensitive data.
 - No API keys or tokens are compiled into the APK.

@@ -8,8 +8,8 @@ enum class BrainState { CONNECTING, LISTENING, THINKING, SPEAKING }
 data class ToolSpec(val name: String, val description: String, val parameters: JsonObject)
 
 data class BrainConfig(
-    val model: String,
-    val fallbackModel: String?,
+    /** Live models to try in order; the next one is used when one is out of quota or rejected. */
+    val models: List<String>,
     val voice: String,
     val systemInstruction: String,
     /** Called after the mic is open, so slow tool discovery overlaps with the user speaking. */
@@ -37,8 +37,11 @@ interface VoiceBrain {
          */
         suspend fun onToolCall(name: String, args: JsonObject): String?
 
-        /** Which model the session connected to (the fallback, if the preferred one was rejected). */
+        /** Which model the session connected to. */
         fun onConnected(model: String) {}
+
+        /** [model] could not be used (out of quota, rejected, unreachable); the next one will be tried. */
+        fun onModelFailed(model: String, error: Throwable) {}
 
         /** The connection ended without [VoiceBrain.stop] being called. [error] is null on a clean server close. */
         fun onEnded(error: Throwable?)
