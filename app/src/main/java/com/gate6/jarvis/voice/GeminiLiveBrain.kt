@@ -69,6 +69,9 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
     @Volatile private var state: BrainState? = null
     private var thinkingDebounce: Job? = null
 
+    /** Debug builds log the conversation (tag LiveTrace) to diagnose turn-taking; release builds never do. */
+    private val trace = context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     override suspend fun start(config: BrainConfig, listener: VoiceBrain.Listener) {
         this.listener = listener
@@ -142,7 +145,10 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
                 when (msg) {
                     is LiveServerContent -> onContent(msg, io)
                     is LiveServerToolCall -> onToolCalls(live, msg.functionCalls)
-                    is LiveServerToolCallCancellation -> msg.functionIds.forEach { toolJobs.remove(it)?.cancel() }
+                    is LiveServerToolCallCancellation -> msg.functionIds.forEach {
+                        if (trace) Log.d(TRACE, "tool call cancelled id=$it")
+                        toolJobs.remove(it)?.cancel()
+                    }
                     is LiveSessionResumptionUpdate -> if (msg.resumable == true) msg.newHandle?.let { resumeHandle = it }
                     is LiveServerGoAway -> scope.launch { resume(live, msg) }
                     else -> Unit
@@ -158,6 +164,12 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
     }
 
     private fun onContent(msg: LiveServerContent, io: AudioIO) {
+        if (trace) {
+            msg.inputTranscription?.text?.takeIf { it.isNotBlank() }?.let { Log.d(TRACE, "user: $it") }
+            msg.outputTranscription?.text?.takeIf { it.isNotBlank() }?.let { Log.d(TRACE, "jarvis: $it") }
+            if (msg.interrupted) Log.d(TRACE, "interrupted")
+            if (msg.turnComplete) Log.d(TRACE, "turn complete")
+        }
         msg.inputTranscription?.text?.takeIf { it.isNotBlank() }?.let {
             listener.onUserTranscript(it)
             // No explicit end-of-user-speech event: treat a short transcript lull as "thinking".
@@ -187,6 +199,7 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
     }
 
     private fun onToolCalls(live: LiveSession, calls: List<FunctionCallPart>) {
+        if (trace) calls.forEach { Log.d(TRACE, "tool call ${it.name} id=${it.id}") }
         setState(BrainState.THINKING)
         for (call in calls) {
             val job = scope.launch {
@@ -197,6 +210,8 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
                 } catch (e: Exception) {
                     "Error: ${e.message ?: e.javaClass.simpleName}"
                 }
+                if (trace) Log.d(TRACE, "tool result ${call.name} id=${call.id} (${result?.length ?: "none"})")
+                if (result == null) return@launch
                 runCatching {
                     live.sendFunctionResponse(
                         listOf(FunctionResponsePart(call.name, buildJsonObject { put("result", result) }, call.id))
@@ -245,6 +260,7 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
 
     companion object {
         private const val TAG = "GeminiLiveBrain"
+        private const val TRACE = "LiveTrace"
         private const val MIC_MIME = "audio/pcm;rate=16000"
         private const val THINKING_AFTER_MS = 700L
     }

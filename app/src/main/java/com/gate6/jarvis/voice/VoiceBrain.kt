@@ -28,8 +28,11 @@ interface VoiceBrain {
 
         fun onAssistantTranscript(text: String)
 
-        /** Runs a tool and returns a compact text result for the model. */
-        suspend fun onToolCall(name: String, args: JsonObject): String
+        /**
+         * Runs a tool and returns a compact text result for the model, or null to send no result
+         * (the model would answer a result with another spoken turn, e.g. a second goodbye).
+         */
+        suspend fun onToolCall(name: String, args: JsonObject): String?
 
         /** The connection ended without [VoiceBrain.stop] being called. [error] is null on a clean server close. */
         fun onEnded(error: Throwable?)

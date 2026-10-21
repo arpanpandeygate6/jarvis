@@ -198,10 +198,11 @@ class VoiceSessionManager(
             }
         }
 
-        override suspend fun onToolCall(name: String, args: JsonObject): String {
+        override suspend fun onToolCall(name: String, args: JsonObject): String? {
             if (name == END_CONVERSATION.name) {
+                // No result: replying would make the model say goodbye a second time.
                 scope.launch { endGracefully("end_conversation") }
-                return "Conversation will close after your goodbye."
+                return null
             }
             val route = catalog?.route(name) ?: return "Error: unknown tool $name"
             return runTool(route, args)
