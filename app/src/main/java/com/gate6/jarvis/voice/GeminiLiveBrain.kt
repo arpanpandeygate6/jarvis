@@ -36,6 +36,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
@@ -69,12 +70,23 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
     @Volatile private var state: BrainState? = null
     private var thinkingDebounce: Job? = null
 
+    // Greeting: see GreetingCache. Mic chunks are dropped while a pre-connect greeting plays, because
+    // the model never said it and must not hear its echo as user speech.
+    private val greetings = GreetingCache(context)
+    @Volatile private var watchingForEarlySpeech = false
+    @Volatile private var userSpokeEarly = false
+    @Volatile private var greetingPlaying = false
+    @Volatile private var recordingGreeting: java.io.ByteArrayOutputStream? = null
+    private val greetingTranscript = StringBuilder()
+    @Volatile private var voice: String? = null
+
     /** Debug builds log the conversation (tag LiveTrace) to diagnose turn-taking; release builds never do. */
     private val trace = context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     override suspend fun start(config: BrainConfig, listener: VoiceBrain.Listener) {
         this.listener = listener
+        voice = config.voice
         stopping = false
         turnDone = true
         resumeHandle = null
@@ -84,13 +96,23 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
         // the session is up, so they can talk right after the wake word instead of waiting for setup.
         val io = AudioIO(context)
         io.onPlaybackStarted = { setState(BrainState.SPEAKING) }
-        io.onPlaybackDrained = { if (turnDone) setState(BrainState.LISTENING) }
+        io.onPlaybackDrained = {
+            greetingPlaying = false
+            if (turnDone) setState(BrainState.LISTENING)
+        }
         // Bounded: enough for speech during a slow connect, without growing on a stalled socket.
         val mic = Channel<ByteArray>(capacity = PREROLL_CHUNKS, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-        io.start { mic.trySend(it) }
+        userSpokeEarly = false
+        greetingPlaying = false
+        watchingForEarlySpeech = config.greet
+        io.start { chunk ->
+            if (watchingForEarlySpeech && Speech.isSpeech(chunk)) userSpokeEarly = true
+            if (!greetingPlaying) mic.trySend(chunk)
+        }
         audio = io
         Latency.mark("mic open")
         setState(BrainState.LISTENING)
+        val needLiveGreeting = scope.async { decideGreeting(config, io) }
 
         val live = try {
             val tools = config.tools()
@@ -117,6 +139,51 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
             }
         }
         scope.launch { receiveLoop(live, io) }
+        scope.launch { if (needLiveGreeting.await()) requestLiveGreeting(live) }
+    }
+
+    /**
+     * Greets unless the user kept talking after the wake word ("Hey Jarvis, what's the weather").
+     * Plays the saved greeting at once; returns true if there is none yet and Gemini should say it.
+     */
+    private suspend fun decideGreeting(config: BrainConfig, io: AudioIO): Boolean {
+        if (!config.greet) return false
+        delay(GREET_DECIDE_MS)
+        watchingForEarlySpeech = false
+        if (userSpokeEarly) {
+            Latency.mark("user kept talking; no greeting")
+            return false
+        }
+        val cached = greetings.get(config.voice) ?: return true
+        greetingPlaying = true
+        io.enqueuePlayback(cached)
+        listener.onAssistantTranscript(GreetingCache.TEXT)
+        Latency.mark("greeting played (saved)")
+        return false
+    }
+
+    /** First greeting with this voice: Gemini says it, and the audio is kept for next time. */
+    private suspend fun requestLiveGreeting(live: LiveSession) {
+        greetingTranscript.clear()
+        recordingGreeting = java.io.ByteArrayOutputStream()
+        runCatching { live.sendTextRealtime(GreetingCache.PROMPT) }
+            .onFailure {
+                recordingGreeting = null
+                Log.w(TAG, "Could not request greeting", it)
+            }
+        Latency.mark("greeting requested from Gemini")
+    }
+
+    /** End of the model turn that carried the live greeting: keep it if it is the greeting we asked for. */
+    private fun finishGreetingRecording(voice: String) {
+        val pcm = recordingGreeting?.toByteArray() ?: return
+        recordingGreeting = null
+        val said = greetingTranscript.toString()
+        if (GreetingCache.EXPECTED.containsMatchIn(said) && greetings.put(voice, pcm)) {
+            Log.i(TAG, "Saved greeting for voice $voice (${pcm.size / 48} ms): \"${said.trim()}\"")
+        } else {
+            Log.i(TAG, "Not saving greeting (\"${said.trim()}\", ${pcm.size} bytes)")
+        }
     }
 
     private suspend fun connectWithFallback(config: BrainConfig, tools: List<ToolSpec>): LiveSession {
@@ -197,9 +264,13 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
                 if (state == BrainState.LISTENING) setState(BrainState.THINKING)
             }
         }
-        msg.outputTranscription?.text?.takeIf { it.isNotBlank() }?.let { listener.onAssistantTranscript(it) }
+        msg.outputTranscription?.text?.takeIf { it.isNotBlank() }?.let {
+            if (recordingGreeting != null) greetingTranscript.append(it)
+            listener.onAssistantTranscript(it)
+        }
 
         if (msg.interrupted) {
+            recordingGreeting = null // cut off: don't keep a partial greeting
             io.flushPlayback()
             turnDone = true
             setState(BrainState.LISTENING)
@@ -207,11 +278,13 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
         }
         msg.content?.parts?.filterIsInstance<InlineDataPart>()?.forEach {
             Latency.markOnce("first reply audio")
+            recordingGreeting?.write(it.inlineData)
             turnDone = false
             thinkingDebounce?.cancel()
             io.enqueuePlayback(it.inlineData)
         }
         if (msg.turnComplete) {
+            voice?.let(::finishGreetingRecording)
             turnDone = true
             if (!io.isPlaying) setState(BrainState.LISTENING)
         }
@@ -283,5 +356,7 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
         private const val MIC_MIME = "audio/pcm;rate=16000"
         private const val THINKING_AFTER_MS = 700L
         private const val PREROLL_CHUNKS = 160 // 8 s of 50 ms mic chunks
+        /** How long after the mic opens to listen for the user continuing before greeting. */
+        private const val GREET_DECIDE_MS = 350L
     }
 }

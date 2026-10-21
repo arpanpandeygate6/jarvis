@@ -52,8 +52,6 @@ data class SessionStatus(val state: SessionState, val detail: String = "")
 class VoiceSessionManager(
     private val context: Context,
     private val onSessionClosed: () -> Unit,
-    /** Called once per session when Jarvis is first ready to hear the user. */
-    private val onReady: () -> Unit = {},
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val config = JarvisConfig(context)
@@ -72,7 +70,6 @@ class VoiceSessionManager(
     private var approvedTurnId = -1
     private var approvedAt = 0L
     private var runningTools = 0
-    private var announcedReady = false
 
     val isActive: Boolean get() = brain != null
 
@@ -80,7 +77,6 @@ class VoiceSessionManager(
     fun start() {
         if (brain != null) return
         ending = false
-        announcedReady = false
         heard.clear()
         resetTurns()
         val b = GeminiLiveBrain(context)
@@ -154,10 +150,6 @@ class VoiceSessionManager(
                         BrainState.SPEAKING -> SessionState.SPEAKING
                     }
                 )
-                if (state == BrainState.LISTENING && !announcedReady) {
-                    announcedReady = true
-                    onReady()
-                }
                 // The idle clock only runs while waiting on the user.
                 if (state == BrainState.SPEAKING) idleJob?.cancel() else restartIdleTimer()
             }

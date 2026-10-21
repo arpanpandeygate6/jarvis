@@ -14,6 +14,8 @@ data class BrainConfig(
     val systemInstruction: String,
     /** Called after the mic is open, so slow tool discovery overlaps with the user speaking. */
     val tools: suspend () -> List<ToolSpec>,
+    /** Say "Hi! How can I help?" at the start, unless the user is already talking. */
+    val greet: Boolean = true,
 )
 
 /**

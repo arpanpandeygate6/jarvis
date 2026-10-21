@@ -43,8 +43,11 @@ notification ("Talk now" / "Turn off"). After each conversation it goes back to 
 - Detection runs entirely on the phone: the microWakeWord `hey_jarvis` model (Apache-2.0, by Kevin
   Ahrendt, from `esphome/micro-wake-word-models`) on LiteRT, with a Kotlin port of the TFLite Micro
   audio frontend. No audio leaves the phone until the wake word is heard.
-- **Speed**: the mic opens about 0.3 s after the wake word, with a short beep, and you can keep talking
-  straight away ("Hey Jarvis, what's on my calendar?"). Speech is buffered while Jarvis connects
+- **Greeting**: Jarvis answers the wake word with "Hi! How can I help?" in its own voice. The first
+  time with each voice Gemini says it live and the audio is saved on the phone; after that it plays
+  instantly. If you keep talking straight after "Hey Jarvis" it skips the greeting and just listens.
+- **Speed**: the mic opens about 0.3 s after the wake word and you can keep talking straight away
+  ("Hey Jarvis, what's on my calendar?"). Speech is buffered while Jarvis connects
   (about 1–2 s) and sent as soon as the session is up. Tool lists and the App Check token are fetched
   ahead of time, and a model the server rejected is skipped next time. Timings per conversation:
   `adb logcat -s JarvisLatency`.
@@ -95,7 +98,7 @@ tool count. Tokens are encrypted with an Android Keystore key and never shown ag
    your Linear issues.
 5. Turn on airplane mode, start a conversation → status shows the server as unavailable; chat still works.
 6. Milestone 1 checks still pass: barge-in, "bye Jarvis", 20 s silence ends the session.
-7. Wake word: turn it on, lock the phone, say "Hey Jarvis" from 1–3 m away → beep → ask something →
+7. Wake word: turn it on, lock the phone, say "Hey Jarvis" from 1–3 m away → Jarvis says "Hi! How can I help?" → ask something →
    say "bye Jarvis" → notification goes back to "Say Hey Jarvis". Try a few people and accents, and a
    TV or music playing (false wakes), and note which sensitivity works.
 

@@ -10,8 +10,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.media.AudioManager
-import android.media.ToneGenerator
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -45,7 +43,7 @@ class JarvisService : Service() {
     override fun onCreate() {
         super.onCreate()
         config = JarvisConfig(this)
-        sessions = VoiceSessionManager(this, onSessionClosed = ::onSessionClosed, onReady = ::playReadyTone)
+        sessions = VoiceSessionManager(this, onSessionClosed = ::onSessionClosed)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -161,14 +159,6 @@ class JarvisService : Service() {
         foreground = false
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
-    }
-
-    private fun playReadyTone() {
-        runCatching {
-            val tone = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 70)
-            tone.startTone(ToneGenerator.TONE_PROP_ACK, 150)
-            main.postDelayed({ tone.release() }, 400)
-        }.onFailure { Log.w(TAG, "Ready tone failed", it) }
     }
 
     private fun hasMic() =
