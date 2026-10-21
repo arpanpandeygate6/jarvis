@@ -81,7 +81,10 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
             connect(config, config.model)
         } catch (e: Exception) {
             val fallback = config.fallbackModel
-            if (e is CancellationException || e is QuotaExceededException || fallback == null || fallback == config.model) throw e
+            // Only a rejected model is worth retrying; setup, quota and cancellation errors are not.
+            if (e is CancellationException || e is QuotaExceededException || e is IllegalStateException ||
+                fallback == null || fallback == config.model
+            ) throw e
             Log.w(TAG, "Model ${config.model} failed (${e.message}); falling back to $fallback")
             connect(config, fallback)
         }

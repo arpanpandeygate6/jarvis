@@ -18,7 +18,22 @@ class JarvisConfig(context: Context) {
         get() = prefs.getInt(KEY_IDLE, DEFAULT_IDLE_SEC)
         set(v) = prefs.edit().putInt(KEY_IDLE, v.coerceIn(5, 120)).apply()
 
+    var wakeWordEnabled: Boolean
+        get() = prefs.getBoolean(KEY_WAKE, false)
+        set(v) = prefs.edit().putBoolean(KEY_WAKE, v).apply()
+
+    /** Index into [WAKE_CUTOFFS]: 0 normal, 1 high, 2 very high. */
+    var wakeSensitivity: Int
+        get() = prefs.getInt(KEY_WAKE_SENS, 0).coerceIn(0, WAKE_CUTOFFS.lastIndex)
+        set(v) = prefs.edit().putInt(KEY_WAKE_SENS, v.coerceIn(0, WAKE_CUTOFFS.lastIndex)).apply()
+
+    val wakeCutoff: Float get() = WAKE_CUTOFFS[wakeSensitivity]
+
     companion object {
+        private const val KEY_WAKE = "wake_word_enabled"
+        private const val KEY_WAKE_SENS = "wake_sensitivity"
+        /** Detection thresholds on the model's averaged probability; 0.97 is the model author's default. */
+        val WAKE_CUTOFFS = floatArrayOf(0.97f, 0.90f, 0.80f)
         private const val KEY_MODEL = "model"
         private const val KEY_VOICE = "voice"
         private const val KEY_IDLE = "idle_timeout_sec"

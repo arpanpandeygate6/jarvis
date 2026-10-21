@@ -3,8 +3,8 @@
 Hands-free voice assistant: on-device "Hey Jarvis" wake word → Gemini Live voice session
 (Firebase AI Logic, free tier) → MCP tools → back to wake-word listening.
 
-Status: **Milestone 2** (tap a button → live, interruptible voice conversation that can use tools
-from your MCP servers). Next: Milestone 3, the on-device "Hey Jarvis" wake word.
+Status: **Milestone 3**: say "Hey Jarvis" (or tap a button) → live, interruptible voice conversation
+that can use tools from your MCP servers → back to listening for the wake word.
 
 ## One-time Firebase setup (free, no billing account)
 
@@ -34,6 +34,24 @@ Needs JDK 17+ (Android Studio's bundled one, or `brew install openjdk@21` and
    `Enter this debug secret into the allow list ...: <token>`. Add it in
    **App Check → Apps → ⋮ → Manage debug tokens**. One token per device/install.
 
+## Wake word (Milestone 3)
+
+Main screen → **Listen for "Hey Jarvis"**. Jarvis then keeps a microphone service running with a
+notification ("Talk now" / "Turn off"). After each conversation it goes back to listening.
+
+- Detection runs entirely on the phone: the microWakeWord `hey_jarvis` model (Apache-2.0, by Kevin
+  Ahrendt, from `esphome/micro-wake-word-models`) on LiteRT, with a Kotlin port of the TFLite Micro
+  audio frontend. No audio leaves the phone until the wake word is heard.
+- A short beep means Jarvis is connected and listening.
+- **Sensitivity**: Normal (model default, 0.97), High (0.90), Very high (0.80). Higher catches more
+  accents and quieter speech but wakes by mistake more often.
+- Android only allows a microphone service to start while the app is on screen. After a reboot, or if
+  the system stops the service, open the app once and listening resumes.
+- **Known limits** (from tests with macOS voices; real voices may differ): reliable for US, UK,
+  Australian, Scottish and South African voices; weak for the Indian-English voices and for a slow
+  "Hey… Jarvis" with a pause; "Hey Travis" can trigger it. If it misses you, raise the sensitivity
+  or use "Talk now" in the notification. A model trained on Indian-English speakers would fix this.
+
 ## MCP tools (Milestone 2)
 
 Main screen → **MCP servers** → **Add server**: name, `https://` URL of a Streamable HTTP MCP endpoint,
@@ -61,6 +79,12 @@ tool count. Tokens are encrypted with an Android Keystore key and never shown ag
    say "no" → nothing runs; ask again and say "yes" → it runs.
 4. Turn on airplane mode, start a conversation → status shows the server as unavailable; chat still works.
 5. Milestone 1 checks still pass: barge-in, "bye Jarvis", 20 s silence ends the session.
+6. Wake word: turn it on, lock the phone, say "Hey Jarvis" from 1–3 m away → beep → ask something →
+   say "bye Jarvis" → notification goes back to "Say Hey Jarvis". Try a few people and accents, and a
+   TV or music playing (false wakes), and note which sensitivity works.
+
+`./gradlew connectedDebugAndroidTest` runs the wake word detector on a device or emulator against
+recorded clips.
 
 ## Notes
 
