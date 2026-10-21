@@ -1,143 +1,212 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- fitsSystemWindows replaces a view's padding with the insets, so the 24dp padding sits on the child. -->
+<!-- fitsSystemWindows replaces a view's padding with the insets, so the padding sits on the child. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fitsSystemWindows="true">
 
-<LinearLayout
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="24dp">
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/app_name"
-        android:textSize="28sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/status"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Idle"
-        android:textSize="20sp" />
-
-    <TextView
-        android:id="@+id/transcript"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:minLines="3"
-        android:textSize="16sp" />
-
-    <Switch
-        android:id="@+id/wake"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Listen for &quot;Hey Jarvis&quot;"
-        android:textSize="16sp" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Wake word sensitivity" />
-
-    <RadioGroup
-        android:id="@+id/sensitivity"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-
-        <RadioButton
-            android:id="@+id/sens_normal"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Normal" />
-
-        <RadioButton
-            android:id="@+id/sens_high"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="High" />
-
-        <RadioButton
-            android:id="@+id/sens_max"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Very high" />
-    </RadioGroup>
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Live model" />
-
-    <EditText
-        android:id="@+id/model"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:importantForAutofill="no"
-        android:inputType="text"
-        android:singleLine="true" />
-
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingTop="16dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="24dp">
 
         <TextView
+            style="@style/Jarvis.Title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="@string/app_name" />
+
+        <TextView
+            style="@style/Jarvis.Label"
+            android:text="Your hands-free voice assistant" />
+
+        <!-- Status -->
+        <LinearLayout
+            style="@style/Jarvis.Card"
+            android:layout_marginTop="20dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <View
+                    android:id="@+id/statusDot"
+                    android:layout_width="12dp"
+                    android:layout_height="12dp"
+                    android:layout_marginEnd="10dp"
+                    android:background="@drawable/status_dot" />
+
+                <TextView
+                    android:id="@+id/status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Ready"
+                    android:textColor="@color/text"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/transcript"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="What you and Jarvis say shows up here."
+                android:lineSpacingExtra="2dp"
+                android:minLines="3"
+                android:textColor="@color/text_muted"
+                android:textColorHint="#FFB0B5BF"
+                android:textSize="15sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/talk"
+            style="@style/Jarvis.Button.Primary"
+            android:layout_marginTop="16dp"
+            android:text="Talk to Jarvis" />
+
+        <Button
+            android:id="@+id/stop"
+            style="@style/Jarvis.Button.Outline"
+            android:layout_marginTop="10dp"
+            android:text="Stop" />
+
+        <!-- Wake word -->
+        <TextView
+            style="@style/Jarvis.Section"
+            android:text="Wake word" />
+
+        <LinearLayout style="@style/Jarvis.Card">
+
+            <Switch
+                android:id="@+id/wake"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Listen for &quot;Hey Jarvis&quot;"
+                android:textColor="@color/text"
+                android:textSize="16sp" />
+
+            <View style="@style/Jarvis.Divider" />
+
+            <TextView
+                style="@style/Jarvis.Label"
+                android:text="Sensitivity" />
+
+            <RadioGroup
+                android:id="@+id/sensitivity"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/sens_normal"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Normal" />
+
+                <RadioButton
+                    android:id="@+id/sens_high"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="High" />
+
+                <RadioButton
+                    android:id="@+id/sens_max"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1.2"
+                    android:text="Very high" />
+            </RadioGroup>
+        </LinearLayout>
+
+        <!-- Voice -->
+        <TextView
+            style="@style/Jarvis.Section"
             android:text="Voice" />
 
-        <Spinner
-            android:id="@+id/voice"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1" />
+        <LinearLayout style="@style/Jarvis.Card">
 
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Jarvis's voice"
+                    android:textColor="@color/text"
+                    android:textSize="16sp" />
+
+                <Spinner
+                    android:id="@+id/voice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <View style="@style/Jarvis.Divider" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="End after silence (seconds)"
+                    android:textColor="@color/text"
+                    android:textSize="16sp" />
+
+                <EditText
+                    android:id="@+id/idle"
+                    android:layout_width="64dp"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:importantForAutofill="no"
+                    android:inputType="number"
+                    android:maxLength="3"
+                    android:singleLine="true" />
+            </LinearLayout>
+
+            <View style="@style/Jarvis.Divider" />
+
+            <TextView
+                style="@style/Jarvis.Label"
+                android:text="Live model" />
+
+            <EditText
+                android:id="@+id/model"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:importantForAutofill="no"
+                android:inputType="text"
+                android:singleLine="true"
+                android:textSize="15sp" />
+        </LinearLayout>
+
+        <!-- Tools -->
         <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="End after silence (s)" />
+            style="@style/Jarvis.Section"
+            android:text="Tools" />
 
-        <EditText
-            android:id="@+id/idle"
-            android:layout_width="64dp"
-            android:layout_height="wrap_content"
-            android:importantForAutofill="no"
-            android:inputType="number"
-            android:maxLength="3"
-            android:singleLine="true" />
+        <Button
+            android:id="@+id/servers"
+            style="@style/Jarvis.Button.Row"
+            android:drawableEnd="@drawable/ic_chevron"
+            android:text="MCP servers" />
     </LinearLayout>
-
-    <Button
-        android:id="@+id/talk"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Talk to Jarvis" />
-
-    <Button
-        android:id="@+id/stop"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Stop" />
-
-    <Button
-        android:id="@+id/servers"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="MCP servers" />
-</LinearLayout>
 </ScrollView>

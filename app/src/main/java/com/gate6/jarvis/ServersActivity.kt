@@ -50,7 +50,15 @@ class ServersActivity : Activity() {
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val v = super.getView(position, convertView, parent)
                 val s = getItem(position)!!
-                v.findViewById<TextView>(android.R.id.text1).text = if (s.enabled) s.name else "${s.name} (off)"
+                v.setBackgroundResource(R.drawable.bg_row)
+                val pad = (16 * resources.displayMetrics.density).toInt()
+                v.setPadding(pad, pad * 3 / 4, pad, pad * 3 / 4)
+                v.findViewById<TextView>(android.R.id.text1).apply {
+                    text = if (s.enabled) s.name else "${s.name} (off)"
+                    setTextColor(getColor(R.color.text))
+                    textSize = 17f
+                }
+                v.findViewById<TextView>(android.R.id.text2).setTextColor(getColor(R.color.text_muted))
                 val signedIn = if (McpOAuth.isSignedIn(context, s.id)) "Signed in" else null
                 v.findViewById<TextView>(android.R.id.text2).text =
                     listOfNotNull(s.url, signedIn, lastResult[s.id]).joinToString("\n")
@@ -59,7 +67,7 @@ class ServersActivity : Activity() {
         }
         findViewById<ListView>(R.id.servers).apply {
             adapter = this@ServersActivity.adapter
-            emptyView = findViewById(R.id.empty)
+            emptyView = this@ServersActivity.findViewById(R.id.empty) // the activity's view, not a ListView child
             setOnItemClickListener { _, _, pos, _ -> edit(this@ServersActivity.adapter.getItem(pos)) }
         }
         findViewById<Button>(R.id.add).setOnClickListener { edit(null) }
@@ -119,6 +127,7 @@ class ServersActivity : Activity() {
             hint = if (hasToken) "Access token (saved; leave blank to keep)" else "Access token (optional)"
             setSingleLine()
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            typeface = android.graphics.Typeface.DEFAULT // password fields default to monospace
         }
         val clearToken = CheckBox(this).apply {
             text = "Remove saved token"

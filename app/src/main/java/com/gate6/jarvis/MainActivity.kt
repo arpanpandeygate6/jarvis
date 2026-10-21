@@ -5,9 +5,10 @@ import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
-import android.widget.ArrayAdapter
 import android.widget.RadioGroup
 import android.widget.Spinner
 import android.widget.Switch
@@ -81,20 +82,28 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         val status = findViewById<TextView>(R.id.status)
+        val dot = findViewById<View>(R.id.statusDot)
         val transcript = findViewById<TextView>(R.id.transcript)
         observers += scope.launch {
-            VoiceSessionManager.status.combine(JarvisService.wakeListening) { s, w -> s to w }.collect { (s, waiting) ->
-                val label = s.state.name.lowercase().replaceFirstChar { it.uppercase() }
-                status.text = when {
+            combine(VoiceSessionManager.status, JarvisService.wakeListening, VoiceSessionManager.transcript) { s, w, t ->
+                Triple(s, w, t)
+            }.collect { (s, waiting, said) ->
+                val idle = s.state == SessionState.IDLE || s.state == SessionState.ERROR
+                val (label, color) = when {
                     // Between conversations the wake word state matters more than the last error.
-                    waiting && s.state == SessionState.ERROR -> "Waiting for \"Hey Jarvis\"\nLast error: ${s.detail}"
-                    waiting && s.state == SessionState.IDLE -> "Waiting for \"Hey Jarvis\""
-                    s.state == SessionState.ERROR -> "Error: ${s.detail}"
-                    else -> label
+                    idle && waiting -> "Say \"Hey Jarvis\"" to R.color.state_listening
+                    s.state == SessionState.ERROR -> "Something went wrong" to R.color.state_error
+                    s.state == SessionState.IDLE -> "Ready" to R.color.state_idle
+                    s.state == SessionState.CONNECTING -> "Connecting…" to R.color.state_busy
+                    s.state == SessionState.LISTENING -> "Listening" to R.color.state_listening
+                    s.state == SessionState.THINKING -> "Thinking…" to R.color.state_busy
+                    else -> "Speaking" to R.color.state_speaking
                 }
+                status.text = label
+                dot.background.mutate().setTint(getColor(color))
+                transcript.text = if (s.state == SessionState.ERROR) s.detail else said
             }
         }
-        observers += scope.launch { VoiceSessionManager.transcript.collect { transcript.text = it } }
     }
 
     override fun onResume() {

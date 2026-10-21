@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FFF4F6FA</color>
+    <color name="card">#FFFFFFFF</color>
+    <color name="line">#FFE6E8EE</color>
+    <color name="primary">#FF3D5AFE</color>
+    <color name="text">#FF1B1F2A</color>
+    <color name="text_muted">#FF6B7280</color>
+
+    <!-- Status dot -->
+    <color name="state_idle">#FF9CA3AF</color>
+    <color name="state_listening">#FF10B981</color>
+    <color name="state_busy">#FFF59E0B</color>
+    <color name="state_speaking">#FF3D5AFE</color>
+    <color name="state_error">#FFEF4444</color>
+</resources>
