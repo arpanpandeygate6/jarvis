@@ -7,7 +7,9 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ArrayAdapter
 import android.widget.RadioGroup
+import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -26,6 +28,8 @@ class MainActivity : Activity() {
     private lateinit var config: JarvisConfig
     private lateinit var model: EditText
     private lateinit var wake: Switch
+    private lateinit var voice: Spinner
+    private lateinit var idle: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,8 +38,14 @@ class MainActivity : Activity() {
         model = findViewById(R.id.model)
         model.setText(config.model)
 
+        voice = findViewById(R.id.voice)
+        voice.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, JarvisConfig.VOICES)
+        voice.setSelection(JarvisConfig.VOICES.indexOf(config.voice).coerceAtLeast(0))
+        idle = findViewById(R.id.idle)
+        idle.setText(config.idleTimeoutSec.toString())
+
         findViewById<Button>(R.id.talk).setOnClickListener {
-            config.model = model.text.toString()
+            saveSettings()
             if (hasMic()) JarvisService.startSession(this) else requestPermissions()
         }
         findViewById<Button>(R.id.stop).setOnClickListener {
@@ -94,6 +104,18 @@ class MainActivity : Activity() {
         // A microphone service may only start while the app is visible: (re)start wake listening here,
         // e.g. after a reboot or after the system stopped the service.
         if (config.wakeWordEnabled && hasMic()) JarvisService.startListening(this)
+    }
+
+    override fun onPause() {
+        saveSettings() // applies to the next conversation, however it is started
+        super.onPause()
+    }
+
+    private fun saveSettings() {
+        config.model = model.text.toString()
+        config.voice = voice.selectedItem as String
+        idle.text.toString().toIntOrNull()?.let { config.idleTimeoutSec = it } // clamped to 5..120
+        idle.setText(config.idleTimeoutSec.toString())
     }
 
     override fun onStop() {

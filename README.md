@@ -113,6 +113,8 @@ recorded clips.
 
 ## Notes
 
+- Main screen settings apply to the next conversation: Gemini voice, and how many seconds of silence
+  end a conversation (5–120, default 20).
 - Model is editable on the main screen. Default `gemini-3.1-flash-live-preview`; if that is rejected
   the app retries once with `gemini-2.5-flash-native-audio-preview-12-2025`.
 - Free tier: Google may use prompts/audio to improve products. Don't test with sensitive data.

@@ -42,6 +42,8 @@ class JarvisConfig(context: Context) {
         /** Native-audio Live model listed in the Firebase AI Logic docs; used if [DEFAULT_MODEL] is rejected. */
         const val FALLBACK_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
         const val DEFAULT_VOICE = "Charon"
+        /** Gemini Live prebuilt voices. */
+        val VOICES = listOf("Charon", "Puck", "Kore", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr")
         const val DEFAULT_IDLE_SEC = 20
 
         val SYSTEM_INSTRUCTION = """
