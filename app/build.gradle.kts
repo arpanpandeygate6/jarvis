@@ -1,5 +1,12 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
+}
+
+// Release signing comes from keystore.properties (gitignored): storeFile, storePassword, keyAlias, keyPassword.
+val keystoreProps = rootProject.file("keystore.properties").takeIf { it.exists() }?.let { f ->
+    Properties().apply { f.inputStream().use(::load) }
 }
 
 // google-services.json is developer-supplied (see README); build without it so CI/compile checks work.
@@ -22,9 +29,21 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (keystoreProps != null) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (keystoreProps != null) signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -40,7 +59,9 @@ android {
 dependencies {
     implementation(platform("com.google.firebase:firebase-bom:35.0.2"))
     implementation("com.google.firebase:firebase-ai")
-    implementation("com.google.firebase:firebase-appcheck-debug")
+    implementation("com.google.firebase:firebase-appcheck")
+    debugImplementation("com.google.firebase:firebase-appcheck-debug")
+    releaseImplementation("com.google.firebase:firebase-appcheck-playintegrity")
     implementation("androidx.core:core-ktx:1.17.0")
     // Versions match firebase-ai 18.0.0's runtime deps (it doesn't expose them at compile time).
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")

@@ -86,6 +86,19 @@ tool count. Tokens are encrypted with an Android Keystore key and never shown ag
 `./gradlew connectedDebugAndroidTest` runs the wake word detector on a device or emulator against
 recorded clips.
 
+## Release builds
+
+- **App Check**: debug builds use the debug provider (one allow-listed token per install); release
+  builds use **Play Integrity**, which only passes for installs from Google Play (internal testing
+  track is fine). In Firebase: App Check → Apps → register Play Integrity with the app's SHA-256
+  signing certificate. Sideloaded release APKs will be rejected by App Check; share debug builds
+  with testers instead.
+- **Signing**: create `keystore.properties` in the project root (gitignored) with `storeFile`,
+  `storePassword`, `keyAlias`, `keyPassword`, then `./gradlew assembleRelease` (or `bundleRelease`
+  for Play). Without it the release APK is unsigned.
+- **CI**: `.github/workflows/android.yml` runs unit tests, lint and a debug build on every push and
+  uploads the APK and reports. It starts working once the repo is pushed to GitHub.
+
 ## Notes
 
 - Model is editable on the main screen. Default `gemini-3.1-flash-live-preview`; if that is rejected

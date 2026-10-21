@@ -7,3 +7,7 @@ local.properties
 captures/
 # Firebase config is per-developer; never commit it.
 app/google-services.json
+# Release signing secrets.
+keystore.properties
+*.jks
+*.keystore
