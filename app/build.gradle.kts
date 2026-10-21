@@ -17,8 +17,8 @@ android {
         applicationId = "com.gate6.jarvis"
         minSdk = 26 // TYPE_APPLICATION_OVERLAY
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     buildTypes {
@@ -30,6 +30,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    // Pure-Kotlin unit tests; android.util.Log calls become no-ops.
+    testOptions.unitTests.isReturnDefaultValues = true
 }
 
 dependencies {
@@ -40,4 +42,7 @@ dependencies {
     // Versions match firebase-ai 18.0.0's runtime deps (it doesn't expose them at compile time).
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
 }

@@ -16,7 +16,7 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
-/** Milestone 1 test screen: start/stop a live voice session by hand. */
+/** Test screen: start/stop a live voice session by hand and open MCP server settings. */
 class MainActivity : Activity() {
     private val scope = MainScope()
     private val observers = mutableListOf<Job>()
@@ -35,6 +35,9 @@ class MainActivity : Activity() {
             if (hasMic()) JarvisService.startSession(this) else requestPermissions()
         }
         findViewById<Button>(R.id.stop).setOnClickListener { JarvisService.stop(this) }
+        findViewById<Button>(R.id.servers).setOnClickListener {
+            startActivity(android.content.Intent(this, ServersActivity::class.java))
+        }
 
         if (!hasMic()) requestPermissions()
     }

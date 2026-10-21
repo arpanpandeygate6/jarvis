@@ -26,6 +26,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ServersActivity"
+            android:exported="false"
+            android:label="MCP servers" />
+
         <!-- Single long-lived mic owner. Started only while an activity is visible (Android 14+ rule);
              once running it keeps while-in-use mic access, so later sessions need no background FGS start. -->
         <service

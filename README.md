@@ -3,7 +3,8 @@
 Hands-free voice assistant: on-device "Hey Jarvis" wake word → Gemini Live voice session
 (Firebase AI Logic, free tier) → MCP tools → back to wake-word listening.
 
-Status: **Milestone 1** (tap a button → live, interruptible voice conversation).
+Status: **Milestone 2** (tap a button → live, interruptible voice conversation that can use tools
+from your MCP servers). Next: Milestone 3, the on-device "Hey Jarvis" wake word.
 
 ## One-time Firebase setup (free, no billing account)
 
@@ -18,15 +19,48 @@ Status: **Milestone 1** (tap a button → live, interruptible voice conversation
 
 ## Build & install
 
+Needs JDK 17+ (Android Studio's bundled one, or `brew install openjdk@21` and
+`export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home`).
+
 ```sh
 ./gradlew installDebug          # phone connected with USB debugging on
+./gradlew testDebugUnitTest     # unit tests; add MCP_LIVE_TEST=1 to also hit a real public MCP server
 ```
 
-(or open the folder in Android Studio and press Run).
+(or open the folder in Android Studio and press Run). `adb` lives in
+`~/Library/Android/sdk/platform-tools`.
 
 6. First launch: `adb logcat -s DebugAppCheckProvider` prints
    `Enter this debug secret into the allow list ...: <token>`. Add it in
    **App Check → Apps → ⋮ → Manage debug tokens**. One token per device/install.
+
+## MCP tools (Milestone 2)
+
+Main screen → **MCP servers** → **Add server**: name, `https://` URL of a Streamable HTTP MCP endpoint,
+optional access token (sent as `Authorization: Bearer …`). **Save and test** connects and reports the
+tool count. Tokens are encrypted with an Android Keystore key and never shown again.
+
+- At the start of each conversation Jarvis loads tools from all enabled servers in parallel (6 s cap,
+  tool lists cached for 10 min). A server that is down is skipped and named on screen; the rest still work.
+- Tools appear to the model as `<server>__<tool>`; at most 80 tools per conversation.
+- **Tools that change data need a spoken yes, enforced in code**, not just by the prompt. A tool needs
+  confirmation unless the server marks it `readOnlyHint: true`. The call only runs when the model set
+  `user_confirmed`, its previous turn asked ("Should I go ahead?"), and your latest reply is a clear yes
+  ("yes", "go ahead", "haan, kar do"…) with no "no / wait / cancel". One yes covers one action.
+- Many servers don't annotate their tools at all, so even lookups would ask for a yes. For servers you
+  know are read-only, tick **Skip the yes/no for tools this server doesn't mark**. Tools a server
+  explicitly marks as changing data still always ask.
+- OAuth sign-in is not supported yet: use servers that accept a static token (e.g. GitHub's MCP server
+  with a personal access token) or no auth.
+
+### Device test script
+
+1. Add `https://mcp.deepwiki.com/mcp` (no token), tick the skip-yes/no box, Save and test → "Connected: 3 tools".
+2. Talk to Jarvis: "What is the OkHttp repo by Square about?" → it uses DeepWiki and answers briefly.
+3. Untick the box, start a new conversation, ask again → Jarvis reads the action back and asks first;
+   say "no" → nothing runs; ask again and say "yes" → it runs.
+4. Turn on airplane mode, start a conversation → status shows the server as unavailable; chat still works.
+5. Milestone 1 checks still pass: barge-in, "bye Jarvis", 20 s silence ends the session.
 
 ## Notes
 
