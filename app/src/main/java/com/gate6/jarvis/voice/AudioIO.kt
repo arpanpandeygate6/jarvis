@@ -123,7 +123,15 @@ class AudioIO(context: Context) {
                     writing = true
                     onPlaybackStarted()
                 }
-                out.write(chunk, 0, chunk.size)
+                // Write in ~40 ms slices so the overlay orb can follow Jarvis's voice.
+                var off = 0
+                while (off < chunk.size && running) {
+                    val len = minOf(SPEAKER_SLICE_BYTES, chunk.size - off)
+                    VoiceLevel.jarvis(chunk, off, len)
+                    out.write(chunk, off, len)
+                    off += len
+                }
+                VoiceLevel.jarvis(chunk, 0, 0)
             }
         }, "jarvis-speaker").apply { priority = Thread.MAX_PRIORITY; start() }
     }
@@ -187,6 +195,7 @@ class AudioIO(context: Context) {
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
         private const val MIC_CHUNK_BYTES = IN_RATE * 2 / 20 // 50 ms
         private const val DRAIN_GAP_MS = 150L
+        private const val SPEAKER_SLICE_BYTES = OUT_RATE * 2 / 25 // 40 ms
         private val OUTPUT_PREFERENCE = listOf(
             AudioDeviceInfo.TYPE_BLE_HEADSET,
             AudioDeviceInfo.TYPE_BLUETOOTH_SCO,

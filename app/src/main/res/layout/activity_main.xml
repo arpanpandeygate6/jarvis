@@ -126,6 +126,16 @@
                     android:layout_weight="1.2"
                     android:text="Very high" />
             </RadioGroup>
+
+            <View style="@style/Jarvis.Divider" />
+
+            <Switch
+                android:id="@+id/overlay"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Show Jarvis over other apps"
+                android:textColor="@color/text"
+                android:textSize="16sp" />
         </LinearLayout>
 
         <!-- Voice -->

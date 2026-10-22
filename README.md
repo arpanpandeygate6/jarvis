@@ -51,6 +51,11 @@ notification ("Talk now" / "Turn off"). After each conversation it goes back to 
   (about 1–2 s) and sent as soon as the session is up. Tool lists and the App Check token are fetched
   ahead of time, and a model that just failed is tried last. Timings per conversation:
   `adb logcat -s JarvisLatency`.
+- **Floating card**: during a conversation a Jarvis card slides up at the bottom of the screen over
+  any app: an orb that grows with your voice (green), pulses with Jarvis's voice (indigo) and spins
+  while thinking (amber), the status, the latest line, and ✕ to end. Tap the card to open Jarvis;
+  the rest of the screen stays usable. Main screen → **Show Jarvis over other apps** (Android asks for
+  "Display over other apps" once). Android doesn't allow it over the lock screen; voice still works there.
 - One-tap alternative: long-press the Jarvis icon → **Talk to Jarvis** (drag it to the home screen to
   pin it), or "Talk now" in the notification.
 - **Sensitivity**: Normal (model default, 0.97), High (0.90), Very high (0.80). Higher catches more

@@ -44,12 +44,13 @@ object Speech {
     /** Above this RMS (16-bit, about -32 dBFS) a 50 ms chunk counts as speech. */
     const val RMS_THRESHOLD = 800.0
 
-    fun rms(pcm16le: ByteArray): Double {
-        val n = pcm16le.size / 2
+    fun rms(pcm16le: ByteArray, offset: Int = 0, length: Int = pcm16le.size): Double {
+        val n = length / 2
         if (n == 0) return 0.0
         var sum = 0.0
         for (i in 0 until n) {
-            val s = (pcm16le[2 * i].toInt() and 0xFF) or (pcm16le[2 * i + 1].toInt() shl 8)
+            val p = offset + 2 * i
+            val s = (pcm16le[p].toInt() and 0xFF) or (pcm16le[p + 1].toInt() shl 8)
             sum += s.toDouble() * s
         }
         return sqrt(sum / n)

@@ -2,12 +2,16 @@ package com.gate6.jarvis
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.RadioGroup
 import android.widget.Spinner
@@ -30,6 +34,7 @@ class MainActivity : Activity() {
     private lateinit var model: EditText
     private lateinit var wake: Switch
     private lateinit var voice: Spinner
+    private lateinit var overlay: Switch
     private lateinit var idle: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,6 +69,9 @@ class MainActivity : Activity() {
                 else -> JarvisService.stopListening(this)
             }
         }
+        overlay = findViewById(R.id.overlay)
+        overlay.setOnCheckedChangeListener(onOverlayToggled)
+
         val sensitivity = findViewById<RadioGroup>(R.id.sensitivity)
         sensitivity.check(SENSITIVITY_IDS[config.wakeSensitivity])
         sensitivity.setOnCheckedChangeListener { _, id ->
@@ -118,11 +126,26 @@ class MainActivity : Activity() {
         super.onResume()
         // The service may have turned the wake word off (notification "Turn off"); keep the switch honest.
         if (wake.isChecked != config.wakeWordEnabled) wake.isChecked = config.wakeWordEnabled
+        // On only when wanted and actually permitted (the user may have just come back from Settings).
+        val overlayOn = config.overlayEnabled && Settings.canDrawOverlays(this)
+        if (overlay.isChecked != overlayOn) {
+            overlay.setOnCheckedChangeListener(null) // reflect state without re-saving it
+            overlay.isChecked = overlayOn
+            overlay.setOnCheckedChangeListener(onOverlayToggled)
+        }
         // A microphone service may only start while the app is visible: (re)start wake listening here,
         // e.g. after a reboot or after the system stopped the service.
         if (config.wakeWordEnabled && hasMic()) JarvisService.startListening(this)
         com.gate6.jarvis.mcp.McpRegistry.prewarm(this)
         JarvisApp.prewarmAppCheck()
+    }
+
+    private val onOverlayToggled = CompoundButton.OnCheckedChangeListener { _, on ->
+        config.overlayEnabled = on
+        if (on && !Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Allow Jarvis to display over other apps, then come back", Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        }
     }
 
     override fun onPause() {

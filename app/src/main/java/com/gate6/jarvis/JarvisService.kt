@@ -17,7 +17,9 @@ import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.gate6.jarvis.mcp.McpRegistry
+import com.gate6.jarvis.ui.AssistantOverlay
 import com.gate6.jarvis.voice.Latency
+import com.gate6.jarvis.voice.SessionState
 import com.gate6.jarvis.voice.VoiceSessionManager
 import com.gate6.jarvis.wake.WakeWordListener
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +37,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class JarvisService : Service() {
     private lateinit var config: JarvisConfig
     private lateinit var sessions: VoiceSessionManager
+    private lateinit var overlay: AssistantOverlay
     private var wake: WakeWordListener? = null
     private var foreground = false
     private val main = Handler(Looper.getMainLooper())
@@ -44,6 +47,7 @@ class JarvisService : Service() {
         super.onCreate()
         config = JarvisConfig(this)
         sessions = VoiceSessionManager(this, onSessionClosed = ::onSessionClosed)
+        overlay = AssistantOverlay(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -68,6 +72,7 @@ class JarvisService : Service() {
         Latency.start("talk requested")
         stopWake()
         sessions.start()
+        overlay.show()
         updateNotification()
     }
 
@@ -116,10 +121,13 @@ class JarvisService : Service() {
         if (!hasMic()) return
         @Suppress("MissingPermission")
         sessions.start()
+        overlay.show()
         updateNotification()
     }
 
     private fun onSessionClosed() {
+        // Leave an error on screen long enough to read.
+        overlay.hide(if (VoiceSessionManager.status.value.state == SessionState.ERROR) ERROR_LINGER_MS else 0)
         if (config.wakeWordEnabled && foreground) {
             // Let the session's recorder fully release before reopening the mic.
             main.removeCallbacks(resumeWake)
@@ -196,6 +204,7 @@ class JarvisService : Service() {
     }
 
     override fun onDestroy() {
+        overlay.dismiss()
         main.removeCallbacks(resumeWake)
         stopWake()
         sessions.release()
@@ -209,6 +218,7 @@ class JarvisService : Service() {
         private const val CHANNEL_ID = "jarvis"
         private const val NOTIFICATION_ID = 1
         private const val MIC_HANDOVER_MS = 300L
+        private const val ERROR_LINGER_MS = 3500L
         const val ACTION_START_SESSION = "com.gate6.jarvis.START_SESSION"
         const val ACTION_START_LISTENING = "com.gate6.jarvis.START_LISTENING"
         const val ACTION_STOP_LISTENING = "com.gate6.jarvis.STOP_LISTENING"

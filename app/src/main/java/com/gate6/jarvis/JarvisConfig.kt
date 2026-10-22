@@ -43,8 +43,14 @@ class JarvisConfig(context: Context) {
 
     val wakeCutoff: Float get() = WAKE_CUTOFFS[wakeSensitivity]
 
+    /** Show the floating Jarvis card over other apps during a conversation (needs the overlay permission). */
+    var overlayEnabled: Boolean
+        get() = prefs.getBoolean(KEY_OVERLAY, true)
+        set(v) = prefs.edit().putBoolean(KEY_OVERLAY, v).apply()
+
     companion object {
         private const val KEY_WAKE = "wake_word_enabled"
+        private const val KEY_OVERLAY = "overlay_enabled"
         private const val KEY_WAKE_SENS = "wake_sensitivity"
         /** Detection thresholds on the model's averaged probability; 0.97 is the model author's default. */
         val WAKE_CUTOFFS = floatArrayOf(0.97f, 0.90f, 0.80f)

@@ -105,6 +105,7 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
         greetingPlaying = false
         watchingForEarlySpeech = config.greet
         io.start { chunk ->
+            VoiceLevel.user(chunk)
             if (watchingForEarlySpeech && Speech.isSpeech(chunk)) userSpokeEarly = true
             if (!greetingPlaying) mic.trySend(chunk)
         }
@@ -335,6 +336,7 @@ class GeminiLiveBrain(private val context: Context) : VoiceBrain {
     }
 
     override suspend fun stop() {
+        VoiceLevel.reset()
         stopping = true
         // Close the socket first: it is what terminates the SDK's receive loop.
         runCatching { session?.close() }
